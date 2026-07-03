@@ -61,6 +61,9 @@ def aspect_table(monkeypatch):
         "fakebooklatin": {"text": 1, "textlatin": 1},
         "fakebook": {"text": 1},
         "textbooklatin": {"text": 1},
+        "fakefragment": {"lore": 1},
+        "fakeinfluence": {"influence": 1},
+        "fakeway": {"way": 1},
     })
     monkeypatch.setattr(knowledge, "_el_aspects", table)
     monkeypatch.setattr(knowledge, "_vaults",
@@ -271,6 +274,22 @@ def test_expedition_battle_plan_rates_followers(english):
 
 
 # ------------------------------------------------------------- gui logic ---
+
+def test_resource_categorization():
+    pytest.importorskip("tkinter")
+    from cultist_adviser.gui import _categorize
+    assert _categorize("dread") == "threats"
+    assert _categorize("defaulthunter") == "threats"
+    assert _categorize("funds") == "core"
+    assert _categorize("fatigue") == "core"
+    assert _categorize("fakefragment") == "lore"
+    assert _categorize("fakebooklatin") == "books"
+    assert _categorize("auclair_b") == "people"
+    assert _categorize("vaultcapital1") == "places"
+    assert _categorize("fakeway") == "places"
+    assert _categorize("fakeinfluence") == "influence"
+    assert _categorize("mysteriousthing") == "misc"
+
 
 def test_pause_detection_logic():
     tk = pytest.importorskip("tkinter")  # noqa: F841 — gui imports tkinter

@@ -13,7 +13,7 @@ from .config import SAVE_PATH, SAVE_POLL_INTERVAL
 from .save_parser import parse_save
 from . import lexicon
 from .advisor import advise, Advice, ALERT_VERBS
-from .knowledge import obtain_ways
+from .knowledge import obtain_ways, element_aspects
 from .recorder import SessionRecorder
 from .review import ReviewWindow
 
@@ -55,10 +55,53 @@ UI = {
     "sec_urgent": ("⚠ 紧急", "⚠ URGENT"),
     "sec_advice": ("● 建议", "● Advice"),
     "sec_info": ("○ 情报", "○ Info"),
+    "filter": ("筛选", "Filter"),
+    "timed_only": ("只看倒计时", "Timed only"),
+    "grp_threats": ("威胁", "Threats"),
+    "grp_core": ("资源与属性", "Resources & abilities"),
+    "grp_advancement": ("碎片与课程", "Fragments & lessons"),
+    "grp_lore": ("秘传", "Lore"),
+    "grp_influence": ("影响", "Influences"),
+    "grp_books": ("书籍", "Books"),
+    "grp_people": ("人员", "People"),
+    "grp_places": ("地点", "Places"),
+    "grp_misc": ("其他", "Other"),
 }
 
 # Suggestions below this priority are background information, not calls to act.
 INFO_PRIORITY = 40
+
+# ------------------------------------------------- resource categorization ---
+# Late-game tables hold dozens of cards; group them into collapsible sections.
+THREAT_IDS = {"dread", "fascination", "restlessness", "affliction", "hunger",
+              "decrepitude", "injury", "notoriety", "mystique",
+              "evidence", "evidenceb"}
+GROUP_ORDER = ("threats", "core", "advancement", "lore", "influence",
+               "books", "people", "places", "misc")
+GROUP_DEFAULT_OPEN = {"threats", "core", "advancement"}
+
+
+def _categorize(entity_id: str) -> str:
+    asp = element_aspects(entity_id)
+    if entity_id in THREAT_IDS or asp.get("reputation") \
+            or asp.get("evidencelevel") or asp.get("hunter"):
+        return "threats"
+    if asp.get("ability") or entity_id in ("funds", "fatigue"):
+        return "core"
+    if asp.get("advancement") or entity_id.startswith("lesson"):
+        return "advancement"
+    if asp.get("lore"):
+        return "lore"
+    if asp.get("text"):
+        return "books"
+    if any(asp.get(a) for a in ("follower", "acquaintance", "hireling",
+                                "prisoner", "mortal")):
+        return "people"
+    if asp.get("location") or asp.get("vault") or asp.get("way"):
+        return "places"
+    if asp.get("influence"):
+        return "influence"
+    return "misc"
 
 
 def _t(key: str) -> str:
@@ -142,15 +185,27 @@ class AdvisorApp:
         nb.add(self.verb_frame, weight=2)
 
         self.res_frame = ttk.Labelframe(nb, padding=4)
+        bar = ttk.Frame(self.res_frame)
+        bar.pack(fill="x", pady=(0, 3))
+        self.filter_label = ttk.Label(bar)
+        self.filter_label.pack(side="left")
+        self.filter_var = tk.StringVar()
+        ttk.Entry(bar, textvariable=self.filter_var, width=16).pack(side="left", padx=4)
+        self.timed_only = tk.BooleanVar(value=False)
+        self.timed_btn = ttk.Checkbutton(bar, variable=self.timed_only)
+        self.timed_btn.pack(side="right")
         self.res_tree = ttk.Treeview(self.res_frame, columns=("qty", "life"),
                                      show="tree headings", height=8)
         self.res_tree.column("#0", width=240)
         self.res_tree.column("qty", width=50, anchor="e")
         self.res_tree.column("life", width=80, anchor="e")
         self.res_tree.tag_configure("expiring", foreground="#c62828")
+        self.res_tree.tag_configure("group", font=("Microsoft YaHei UI", 9, "bold"))
         self.res_tree.pack(fill="both", expand=True)
         self.res_tree.bind("<Double-1>", self._show_obtain_ways)
         self._res_items: dict[str, str] = {}  # tree item id -> entity id
+        self._group_keys: dict[str, str] = {}  # tree item id -> group key
+        self._grp_open: dict[str, bool] = {}   # group key -> user's open state
         nb.add(self.res_frame, weight=3)
 
         self._apply_language_chrome()
@@ -195,6 +250,8 @@ class AdvisorApp:
         self.root.title(_t("title"))
         self.topmost_btn.configure(text=_t("topmost"))
         self.review_btn.configure(text=_t("review"))
+        self.filter_label.configure(text=_t("filter"))
+        self.timed_btn.configure(text=_t("timed_only"))
         self.sug_frame.configure(text=_t("suggestions"))
         self.verb_frame.configure(text=_t("verbs"))
         self.res_frame.configure(text=_t("resources_hint"))
@@ -305,15 +362,51 @@ class AdvisorApp:
                     lexicon.recipe_name(v.recipe_id) if v.recipe_id else "—",
                     _fmt_secs(left)))
 
-            self.res_tree.delete(*self.res_tree.get_children())
-            self._res_items.clear()
-            for r in self.advice.resources:
-                lives = [max(0.0, lv - drift) for lv in r.lifetimes]
-                soonest = lives[0] if lives else 0.0
+            self._render_resources(drift)
+        if reschedule:
+            self.root.after(REDRAW_MS, self._redraw_timers)
+
+    def _render_resources(self, drift: float):
+        # Remember the user's group folding before the rebuild wipes it.
+        for item in self.res_tree.get_children():
+            key = self._group_keys.get(item)
+            if key:
+                self._grp_open[key] = bool(self.res_tree.item(item, "open"))
+        self.res_tree.delete(*self.res_tree.get_children())
+        self._res_items.clear()
+        self._group_keys.clear()
+
+        query = self.filter_var.get().strip().lower()
+        groups: dict[str, list] = {}
+        for r in self.advice.resources:
+            lives = [max(0.0, lv - drift) for lv in r.lifetimes]
+            if self.timed_only.get() and not lives:
+                continue
+            name = lexicon.display_name(r.entity_id)
+            if query and query not in name.lower() and query not in r.entity_id.lower():
+                continue
+            groups.setdefault(_categorize(r.entity_id), []).append((r, name, lives))
+
+        for key in GROUP_ORDER:
+            rows = groups.get(key)
+            if not rows:
+                continue
+            rows.sort(key=lambda x: (min(x[2]) if x[2] else float("inf"), x[1]))
+            total = sum(r.quantity for r, _, _ in rows)
+            grp_soonest = min((min(l) for _, _, l in rows if l), default=0.0)
+            gtags = ("group", "expiring") if 0 < grp_soonest <= 30 else ("group",)
+            gitem = self.res_tree.insert(
+                "", "end", tags=gtags,
+                open=self._grp_open.get(key, key in GROUP_DEFAULT_OPEN),
+                text=_t("grp_" + key),
+                values=(total, _fmt_secs(grp_soonest) if grp_soonest else ""))
+            self._group_keys[gitem] = key
+            for r, name, lives in rows:
+                soonest = min(lives) if lives else 0.0
                 tags = ("expiring",) if lives and soonest <= 30 else ()
                 parent = self.res_tree.insert(
-                    "", "end", tags=tags, open=bool(lives) and soonest <= 60,
-                    text=lexicon.display_name(r.entity_id),
+                    gitem, "end", tags=tags, open=bool(lives) and soonest <= 60,
+                    text=name,
                     values=(r.quantity, _fmt_secs(soonest) if lives else _t("permanent")))
                 self._res_items[parent] = r.entity_id
                 if len(lives) > 1:
@@ -322,8 +415,6 @@ class AdvisorApp:
                         self.res_tree.insert(parent, "end", tags=child_tags,
                                              text="  " + _t("nth").format(i),
                                              values=("", _fmt_secs(lv)))
-        if reschedule:
-            self.root.after(REDRAW_MS, self._redraw_timers)
 
 
 def main():
