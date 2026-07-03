@@ -57,8 +57,16 @@ def aspect_table(monkeypatch):
         "defaulthunter": {"hunter": 1, "mortal": 1},
         "evidence": {"evidencelevel": 1},
         "evidenceb": {"evidencelevel": 2},
+        "vaultcapital1": {"vault": 1},
+        "fakebooklatin": {"text": 1, "textlatin": 1},
+        "fakebook": {"text": 1},
+        "textbooklatin": {"text": 1},
     })
     monkeypatch.setattr(knowledge, "_el_aspects", table)
+    monkeypatch.setattr(knowledge, "_vaults",
+                        {"vaultcapital1": ["guardian_watchers"]})
+    monkeypatch.setattr(knowledge, "_counters",
+                        {"guardian_watchers": ["grail", "moth", "edge"]})
 
 
 # ------------------------------------------------------------- opening ---
@@ -225,6 +233,41 @@ def test_hunter_alert_with_and_without_muscle(english):
     unarmed = state([card("defaulthunter"), card("skillhealtha"), verb("time", 55)])
     alerts = by_priority(unarmed, 120)
     assert alerts and "10" in alerts[0].detail
+
+
+# ------------------------------------------------- books / lore / vaults ---
+
+def test_unreadable_book_flagged_until_scholar(english):
+    base = [card("fakebooklatin"), card("skillhealtha"), verb("time", 55)]
+    assert by_priority(state(base), 72)
+    assert not by_priority(state(base + [card("scholarlatin")]), 72)
+
+
+def test_bookshop_stock_info():
+    piles = {"commontomes_draw": ["textbooklatin", "fakebook"]}
+    assert by_priority(state([verb("time", 55)], draw_piles=piles), 13)
+    assert by_priority(state([verb("time", 55)],
+                             draw_piles={"commontomes_draw": []}), 13)
+
+
+def test_lore6_plan_branches(english):
+    from cultist_adviser.advisor import _lore6_plan
+    combine = state([card("fragmentlanternb"), card("fragmentlantern"), verb("time", 55)])
+    assert "combine" in _lore6_plan(combine, "lantern", "灯")
+    subvert = state([card("fragmentlanternb"), card("fragmentmoth"), verb("time", 55)])
+    assert "subvert" in _lore6_plan(subvert, "lantern", "灯")
+    empty = state([verb("time", 55)])
+    assert "Gather" in _lore6_plan(empty, "lantern", "灯")
+
+
+def test_expedition_battle_plan_rates_followers(english):
+    armed = state([card("vaultcapital1"), card("slee_c"),
+                   card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(armed, 64)
+    assert alerts and "70" in alerts[0].detail  # Edge-5 vs the watchers
+    unarmed = state([card("vaultcapital1"), card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(unarmed, 64)
+    assert alerts and "fail" in alerts[0].detail
 
 
 # ------------------------------------------------------------- gui logic ---

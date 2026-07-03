@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 
 from .save_parser import GameState, ElementStack, Situation, stack_quantity, find_situations
 from .lexicon import display_name, recipe_name, situation_name, tr, get_language
-from .knowledge import obtain_hint, has_aspect, element_aspects
+from .knowledge import (obtain_hint, has_aspect, element_aspects,
+                        vault_obstacles, obstacle_counters)
 
 TABLETOP = "~/tabletop"
 
@@ -642,10 +643,19 @@ def _best_idle_use(state: GameState, verb_id: str):
             if count >= 2:
                 return (f"「{display_name(eid)}」×2：合成更高级秘传",
                         f"{display_name(eid)} ×2: combine into higher lore")
+        translatable = None
         for s in _tabletop_stacks(state):
-            if s.entity_id.startswith(("book", "textbook")):
+            lang, is_book = _book_language(s.entity_id)
+            if not is_book:
+                continue
+            if not lang:
                 return (f"阅读「{display_name(s.entity_id)}」",
                         f"read {display_name(s.entity_id)}")
+            if translatable is None and _qty_anywhere(state, "scholar" + lang):
+                translatable = s.entity_id
+        if translatable:
+            return (f"翻译「{display_name(translatable)}」（书 + 语言学者）",
+                    f"translate {display_name(translatable)} (book + scholar)")
         if has("passion"):
             return (f"激情：冥想（产灵感，凑 2 张可升激情）",
                     "Passion: exercise it → Glimmering (pair up to raise Passion)")
@@ -667,7 +677,7 @@ def _best_idle_use(state: GameState, verb_id: str):
                     f"chat with {display_name(acq)} (add lore to recruit them)")
     elif verb_id == "explore":
         for s in _tabletop_stacks(state):
-            if s.entity_id.startswith("vault."):
+            if has_aspect(s.entity_id, "vault"):
                 return (f"远征「{display_name(s.entity_id)}」：先派 1 雇员 + 1 资金侦察",
                         f"expedition to {display_name(s.entity_id)}: scout with a hireling + 1 Funds first")
         for s in _tabletop_stacks(state):
@@ -937,6 +947,128 @@ TRIBUTE = {
 }
 
 
+# Foreign texts carry aspect text<lang>; scholar<lang> unlocks them. The first
+# four languages have shop textbooks; the rest need tutors or stranger means.
+BOOK_LANGS = ("latin", "greek", "sanskrit", "aramaic",
+              "phrygian", "fucine", "mandaic", "vak")
+TEXTBOOK_LANGS = ("latin", "greek", "sanskrit", "aramaic")
+
+# Subversion wheel (source -> beneficiary): sacrificing a source-aspect lore
+# upgrades a target-aspect lore one rank. Keyed by target for planning.
+SUBVERT_SOURCE = {"lantern": "moth", "forge": "lantern", "edge": "forge",
+                  "winter": "edge", "heart": "winter", "grail": "heart",
+                  "moth": "grail"}
+
+ASPECT_ZH = {"edge": "刃", "forge": "铸", "grail": "杯", "heart": "心",
+             "knock": "启", "lantern": "灯", "moth": "蛾", "winter": "冬"}
+
+
+def _book_language(entity_id: str):
+    """(language or "", is_book) — a book is anything with the text aspect."""
+    asp = element_aspects(entity_id)
+    if not asp.get("text"):
+        return "", False
+    return next((l for l in BOOK_LANGS if asp.get("text" + l)), ""), True
+
+
+def _book_rules(state: GameState, out: list[Suggestion]):
+    scholars = {l for l in BOOK_LANGS if _qty_anywhere(state, "scholar" + l)}
+    blocked: dict[str, list[str]] = {}
+    for s in _tabletop_stacks(state):
+        lang, is_book = _book_language(s.entity_id)
+        if is_book and lang and lang not in scholars:
+            blocked.setdefault(lang, []).append(s.entity_id)
+    pile = state.draw_piles.get("commontomes_draw")
+
+    for lang, books in sorted(blocked.items()):
+        scholar = "scholar" + lang
+        titles = "、".join(f"「{display_name(b)}」" for b in books[:3]) \
+            if get_language() == "zh" else \
+            ", ".join(display_name(b) for b in books[:3])
+        if _qty_actionable(state, "textbook" + lang):
+            way = tr(f"你已有「{display_name('textbook' + lang)}」——先研读它获得「{display_name(scholar)}」。",
+                     f"You already hold {display_name('textbook' + lang)} — study it "
+                     f"for {display_name(scholar)}.")
+        elif pile and ("textbook" + lang) in pile:
+            way = tr(f"书商的存货里还有「{display_name('textbook' + lang)}」，去买一本。",
+                     f"The bookshop still stocks {display_name('textbook' + lang)} — buy it.")
+        elif lang in TEXTBOOK_LANGS:
+            way = tr("教材可在书商补货或拍卖会出现，留意「探索」。",
+                     "Its textbook turns up at the bookshop or auctions — keep exploring.")
+        else:
+            way = tr("这门语言没有教材，需要灵体教授或特殊辅导。",
+                     "No textbook exists for this tongue; it takes a spirit tutor "
+                     "or stranger lessons.")
+        out.append(Suggestion(72,
+            tr(f"{len(books)} 本书看不懂（缺「{display_name(scholar)}」）",
+               f"{len(books)} book(s) unreadable — no {display_name(scholar)}"),
+            titles + tr("。", ". ") + way))
+
+    if pile is not None:
+        stocked_textbooks = [b for b in dict.fromkeys(pile)
+                             if b.startswith("textbook") and b[len("textbook"):] in BOOK_LANGS]
+        if pile:
+            detail = tr(f"买空全部存货可获得书店房间（最优总部之一）。",
+                        "Buy out the stock and the shop's premises become yours "
+                        "(one of the best headquarters).")
+            if stocked_textbooks:
+                names = "、".join(display_name(b) for b in stocked_textbooks) \
+                    if get_language() == "zh" else \
+                    ", ".join(display_name(b) for b in stocked_textbooks)
+                detail += tr(f"在售教材：{names}。", f" Textbooks in stock: {names}.")
+            out.append(Suggestion(13,
+                tr(f"书商存货还剩 {len(pile)} 本", f"Bookshop stock: {len(pile)} left"),
+                detail))
+        else:
+            out.append(Suggestion(13,
+                tr("书商已被买空", "The bookshop is bought out"),
+                tr("书店房间到手了——最优总部之一，记得搬过去。",
+                   "The shop premises are yours — one of the best HQs; move in.")))
+
+
+def _fragment_counts(state: GameState, aspect: str) -> dict[int, int]:
+    """Lore level -> copies held, for one aspect."""
+    counts: dict[int, int] = {}
+    for s in _all_stacks(state):
+        if not s.entity_id.startswith("fragment"):
+            continue
+        rest = s.entity_id[len("fragment"):]
+        if rest.startswith(aspect):
+            lvl = LORE_SUFFIX_LEVEL.get(rest[len(aspect):])
+            if lvl:
+                counts[lvl] = counts.get(lvl, 0) + s.quantity
+    return counts
+
+
+def _lore6_plan(state: GameState, aspect: str, zh_name: str) -> str:
+    """Concrete next step toward a level-6 lore of this aspect. Mechanics from
+    study_3_research.json: same-type upgrade or subversion both sacrifice one
+    lore card to raise the other one rank (epiphany b->c)."""
+    counts = _fragment_counts(state, aspect)
+    src = SUBVERT_SOURCE[aspect]
+    src_any = sum(_fragment_counts(state, src).values())
+    total_own = sum(counts.values())
+    if counts.get(4):
+        if total_own >= 2:
+            return tr(f"你已有{zh_name}4：再配一张任意{zh_name}系秘传研读（同类升级）→ {zh_name}6，配博闻更稳。",
+                      f" You hold {aspect}-4: study it with any other {aspect} lore "
+                      f"(combine) for {aspect}-6 — Erudition steadies the roll.")
+        if src_any:
+            return tr(f"你已有{zh_name}4：牺牲一张{ASPECT_ZH[src]}系秘传拗转研读 → {zh_name}6。",
+                      f" You hold {aspect}-4: subvert — sacrifice any {src} lore in study "
+                      f"to raise it to {aspect}-6.")
+        return tr(f"你已有{zh_name}4：还差一张陪练卡（任意{zh_name}系，或用于拗转的蛾灯系上游秘传）。",
+                  f" You hold {aspect}-4 but need a second lore card to sacrifice "
+                  f"(any {aspect}, or {src} lore for subversion).")
+    if counts.get(2, 0) >= 2 or (counts.get(2) and src_any):
+        return tr(f"先把{zh_name}2 升到 4（同类升级或拗转牺牲一张上游秘传），再重复一次到 6。",
+                  f" Raise your {aspect}-2 to 4 first (combine or subvert), "
+                  "then repeat once more for 6.")
+    return tr(f"先攒{zh_name}系秘传：读书、漫宿或冥想获取，两张起步。",
+              f" Gather {aspect} lore first — books, the Mansus or meditation; "
+              "two cards to start.")
+
+
 def _lore_levels(state: GameState) -> dict[str, int]:
     """Lore aspect -> highest fragment level held anywhere."""
     best: dict[str, int] = {}
@@ -1019,7 +1151,7 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
                "to earn the surrendering lessons, one by one.")))
         return
     lore = ASCENSION_LORE[track]
-    lore_zh = {"forge": "铸", "lantern": "灯", "grail": "杯"}[lore]
+    lore_zh = ASPECT_ZH[lore]
     if stage == "a":
         out.append(Suggestion(68,
             tr(f"野心 1→2：入梦 =「{display_name(eid)}」+ {lore_zh}之秘传",
@@ -1038,16 +1170,17 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
                    "Level 3 locks the route; further levels come only in Ambition seasons.")))
         else:
             missing = []
+            detail = ""
             if not has_way:
                 missing.append(tr("「牡鹿之门道路」（漫宿答谜获得）",
                                   "Way: Stag Door (answer the riddle in the Mansus)"))
             if not has_lore6:
-                missing.append(tr(f"6 级{lore_zh}之秘传（同类 ×2 + 理性合成升级）",
-                                  f"level-6 {lore} lore (combine pairs with Reason)"))
+                missing.append(tr(f"6 级{lore_zh}之秘传", f"level-6 {lore} lore"))
+                detail = _lore6_plan(state, lore, lore_zh).strip()
             out.append(Suggestion(62,
                 tr("野心 2→3 还缺：" + "、".join(missing),
                    "Ambition 2→3 still needs: " + "; ".join(missing)),
-                ""))
+                detail))
     elif stage in "cde":
         level = "abcdef".index(stage) + 1
         zh_t, en_t = TRIBUTE[track]
@@ -1073,15 +1206,49 @@ def _mansus_expedition_rules(state: GameState, out: list[Suggestion]):
             tr("在漫宿出示谜面对应的 6 级秘传即可通过，获得「牡鹿之门道路」（野心 3 级必需）。",
                "Present the level-6 lore the riddle names to pass and earn Way: Stag Door "
                "(required for Ambition 3).")))
-    vault = next((e for e in ids if e.startswith("vault.")), None)
+    vault = next((e for e in ids if has_aspect(e, "vault")), None)
     if vault:
+        detail = _vault_battle_plan(state, vault)
         out.append(Suggestion(64,
             tr(f"藏宝地「{display_name(vault)}」待远征",
                f"Expedition available: {display_name(vault)}"),
-            tr("先派 1 名雇员 + 1 资金侦察，看清全部障碍再上主力（蛾克环境、启/铸克封印、刃克守卫、心/灯克诅咒）。远征结束必得 1 邪名，提前想好善后。",
-               "Scout first with one hireling + 1 Funds to reveal every obstacle (Moth beats "
-               "terrain, Knock/Forge seals, Edge guardians, Heart/Lantern curses). Every "
-               "expedition ends with 1 Notoriety — plan the cleanup.")))
+            detail + tr("远征结束必得 1 邪名，提前想好善后。",
+                        " Every expedition ends with 1 Notoriety — plan the cleanup.")))
+
+
+def _vault_battle_plan(state: GameState, vault: str) -> str:
+    """Per-obstacle counters for a known site, rated against your followers;
+    generic scouting advice when the site isn't in the index."""
+    obstacles = vault_obstacles(vault)
+    if not obstacles:
+        return tr("先派 1 名雇员 + 1 资金侦察，看清全部障碍再上主力。",
+                  "Scout first with one hireling + 1 Funds to reveal every obstacle. ")
+    lines = []
+    for obs in obstacles:
+        counters = obstacle_counters(obs)
+        best_aspect, best = "", 0
+        for a in counters:
+            v = _best_follower_aspect(state, a)
+            if v > best:
+                best_aspect, best = a, v
+        cnames = "/".join(ASPECT_ZH.get(a, a) for a in counters) \
+            if get_language() == "zh" else "/".join(counters)
+        if best >= 10:
+            rate = tr(f"你的{ASPECT_ZH.get(best_aspect, best_aspect)}系手下必成",
+                      f"your {best_aspect} follower clears it outright")
+        elif best >= 5:
+            rate = tr(f"你的{ASPECT_ZH.get(best_aspect, best_aspect)} {best} 手下约七成",
+                      f"your {best_aspect}-{best} follower makes ~70%")
+        elif best >= 1:
+            rate = tr(f"手下最高只有{ASPECT_ZH.get(best_aspect, best_aspect)} {best}，约三成",
+                      f"best follower is {best_aspect}-{best}, ~30% only")
+        else:
+            rate = tr("没有克制系手下，会硬性失败", "no counter follower — it will fail")
+        lines.append(f"「{display_name(obs)}」({cnames}克)：{rate}"
+                     if get_language() == "zh" else
+                     f"{display_name(obs)} (beaten by {cnames}): {rate}")
+    sep = "；" if get_language() == "zh" else "; "
+    return sep.join(lines) + tr("。", ". ")
 
 
 def _progression_rules(state: GameState, out: list[Suggestion]):
@@ -1091,6 +1258,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _cult_rules(state, out)
     _ascension_rules(state, out)
     _mansus_expedition_rules(state, out)
+    _book_rules(state, out)
 
 
 def _ghoul_rules(state: GameState, out: list[Suggestion]):

@@ -6,16 +6,21 @@ as "is this card an acquaintance?" need the game's element definitions).
 Cached to knowledge_cache.json — delete it to rebuild after a game update.
 """
 import json
+import re
 
 from .config import PROJECT_DIR
 from .lexicon import CONTENT_DIR, _lenient_json, display_name, recipe_name, tr
 
 CACHE_PATH = PROJECT_DIR / "knowledge_cache.json"
 MAIN_VERBS = {"work", "study", "dream", "explore", "talk", "time"}
+LORE_ASPECT_NAMES = ("edge", "forge", "grail", "heart", "knock",
+                     "lantern", "moth", "winter")
 
 _recipes: list[dict] = []          # {id, action, craftable, req{}, eff{}}
 _obtain: dict[str, list[int]] = {}  # element id -> indices into _recipes
 _el_aspects: dict[str, dict] = {}   # element id -> {aspect: value}
+_vaults: dict[str, list[str]] = {}  # expedition site -> obstacle element ids
+_counters: dict[str, list[str]] = {}  # obstacle -> lore aspects that beat it
 
 
 def _parse_element_aspects() -> dict[str, dict]:
@@ -44,14 +49,51 @@ def _parse_element_aspects() -> dict[str, dict]:
     return aspects
 
 
+def _parse_expeditions() -> tuple[dict, dict]:
+    """Vault -> obstacles (from *_setup recipe effects) and obstacle -> counter
+    aspects (from explorevault<obstacle>_<tier><aspect> resolution recipe ids)."""
+    vaults: dict[str, list[str]] = {}
+    counters: dict[str, list[str]] = {}
+    folder = CONTENT_DIR / "core" / "recipes"
+    if not folder.is_dir():
+        return vaults, counters
+    tier_re = re.compile(
+        r"^explorevault(.+)_(?:high|mid|low)(%s)$" % "|".join(LORE_ASPECT_NAMES))
+    for path in folder.glob("explore_vault*.json"):
+        try:
+            data = _lenient_json(path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        for value in data.values():
+            if not isinstance(value, list):
+                continue
+            for r in value:
+                if not isinstance(r, dict) or not r.get("id"):
+                    continue
+                rid = str(r["id"]).lower()
+                if rid.endswith("_setup"):
+                    site = next((str(k).lower() for k in (r.get("requirements") or {})
+                                 if str(k).lower().startswith("vault")), None)
+                    if site:
+                        vaults[site] = [str(k).lower()
+                                        for k in (r.get("effects") or {})]
+                m = tier_re.match(rid)
+                if m:
+                    obstacle, aspect = m.group(1), m.group(2)
+                    if aspect not in counters.setdefault(obstacle, []):
+                        counters[obstacle].append(aspect)
+    return vaults, counters
+
+
 def _load():
-    global _recipes, _obtain, _el_aspects
+    global _recipes, _obtain, _el_aspects, _vaults, _counters
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
             _recipes, _obtain = cache["recipes"], cache["obtain"]
-            _el_aspects = cache["aspects"]  # KeyError on pre-aspect caches -> rebuild
-            return
+            _el_aspects = cache["aspects"]
+            _vaults, _counters = cache["vaults"], cache["counters"]
+            return  # KeyError on caches from older versions -> rebuild below
         except Exception:
             pass
     recipes: list[dict] = []
@@ -98,10 +140,13 @@ def _load():
             obtain.setdefault(eid, []).append(i)
     _recipes, _obtain = recipes, obtain
     _el_aspects = _parse_element_aspects()
+    _vaults, _counters = _parse_expeditions()
     if recipes:
         try:
             CACHE_PATH.write_text(json.dumps({"recipes": recipes, "obtain": obtain,
-                                              "aspects": _el_aspects},
+                                              "aspects": _el_aspects,
+                                              "vaults": _vaults,
+                                              "counters": _counters},
                                              ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
@@ -152,6 +197,16 @@ def has_aspect(entity_id: str, aspect: str) -> bool:
     if entity_id.lower() == aspect.lower():
         return True
     return bool(element_aspects(entity_id).get(aspect))
+
+
+def vault_obstacles(entity_id: str) -> list[str]:
+    """Obstacle element ids a base-game expedition site will spawn."""
+    return _vaults.get(entity_id.lower(), [])
+
+
+def obstacle_counters(obstacle_id: str) -> list[str]:
+    """Lore aspects that can beat an expedition obstacle (tiers 1/5/10)."""
+    return _counters.get(obstacle_id.lower(), [])
 
 
 def obtain_hint(entity_id: str, available: set | None = None) -> str:
