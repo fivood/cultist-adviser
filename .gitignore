@@ -6,5 +6,6 @@ cultist_adviser/logs/
 cultist_adviser/settings.json
 build/
 dist/
+release/
 *.spec
 *.egg-info/
