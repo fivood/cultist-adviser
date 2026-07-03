@@ -52,6 +52,11 @@ def aspect_table(monkeypatch):
         "auclair_b": {"follower": 1, "winter": 2},
         "auclair_c": {"follower": 1, "disciple": 1, "winter": 5},
         "auclair_p": {"prisoner": 1},
+        "victor_c": {"follower": 1, "disciple": 1, "moth": 5},
+        "slee_c": {"follower": 1, "disciple": 1, "edge": 5},
+        "defaulthunter": {"hunter": 1, "mortal": 1},
+        "evidence": {"evidencelevel": 1},
+        "evidenceb": {"evidencelevel": 2},
     })
     monkeypatch.setattr(knowledge, "_el_aspects", table)
 
@@ -190,6 +195,36 @@ def test_progression_skipped_for_exile():
     st = state([card("acquaintance"), card("fragmentlantern"),
                 verb("time.exile", 55)], legacy="exile")
     assert not by_priority(st, 75)
+
+
+# -------------------------------------------------------------- dispatch ---
+
+@pytest.fixture
+def english():
+    from cultist_adviser import lexicon
+    lexicon.set_language("en")
+    yield
+    lexicon.set_language("zh")
+
+
+def test_evidence_tip_scales_with_moth_follower(english):
+    with_moth = state([card("evidence", 1, 200), card("victor_c"),
+                       card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(with_moth, 125)
+    assert alerts and "70" in alerts[0].detail
+    without = state([card("evidence", 1, 200), card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(without, 125)
+    assert alerts and "70" not in alerts[0].detail
+
+
+def test_hunter_alert_with_and_without_muscle(english):
+    armed = state([card("defaulthunter"), card("slee_c"),
+                   card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(armed, 120)
+    assert alerts and alerts[0].urgent and "70" in alerts[0].detail
+    unarmed = state([card("defaulthunter"), card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(unarmed, 120)
+    assert alerts and "10" in alerts[0].detail
 
 
 # ------------------------------------------------------------- gui logic ---

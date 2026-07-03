@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from .save_parser import GameState, ElementStack, Situation, stack_quantity, find_situations
 from .lexicon import display_name, recipe_name, situation_name, tr, get_language
-from .knowledge import obtain_hint, has_aspect
+from .knowledge import obtain_hint, has_aspect, element_aspects
 
 TABLETOP = "~/tabletop"
 
@@ -405,21 +405,45 @@ def _season_forecast_rules(state: GameState, out: list[Suggestion]):
     ))
 
 
+def _best_follower_aspect(state: GameState, aspect: str) -> int:
+    """Highest value of an aspect among followers on the table."""
+    return max((element_aspects(s.entity_id).get(aspect, 0)
+                for s in _tabletop_stacks(state)
+                if has_aspect(s.entity_id, "follower")), default=0)
+
+
+def _evidence_dispatch_tip(state: GameState) -> str:
+    """Concrete destroy-evidence plan. Tiers from hunting_countermeasures.json
+    (talk = follower + evidence; moth 5 / moth 1 / bare hands)."""
+    moth = _best_follower_aspect(state, "moth")
+    if moth >= 5:
+        return tr("你有蛾系 5+ 的手下：谈话 = 手下 + 证据，约七成销毁。",
+                  " A Moth-5 follower is on hand: talk = follower + evidence, ~70% to destroy.")
+    if moth >= 1:
+        return tr("手下蛾系仅入门：销毁只有约三成，失败会折损手下并 +1 邪名，慎重。",
+                  " Your best Moth is minor: ~30% only, and failure costs the follower "
+                  "plus 1 Notoriety.")
+    return tr("没有蛾系手下——徒手销毁把握很低，先培养一名蛾系门徒。",
+              " No Moth follower — bare-handed odds are poor; raise a Moth disciple first.")
+
+
 def _reputation_rules(state: GameState, out: list[Suggestion]):
     if _qty_anywhere(state, "evidenceb"):
         out.append(Suggestion(
             priority=190,
             title=tr(f"「{display_name('evidenceb')}」在场！", f"{display_name('evidenceb')} exists!"),
-            detail=tr("被审判即游戏结束。用蛾系手下销毁，或准备「当局欠下的人情」。",
-                      "A trial ends the game. Destroy it with a Moth follower, or hold a Favour."),
+            detail=tr("被审判即游戏结束。销毁它，或准备「当局欠下的人情」。",
+                      "A trial ends the game. Destroy it, or hold a Favour.")
+            + _evidence_dispatch_tip(state),
             urgent=True,
         ))
     elif _qty_anywhere(state, "evidence"):
         out.append(Suggestion(
             priority=125,
             title=tr(f"「{display_name('evidence')}」在场", f"{display_name('evidence')} on the table"),
-            detail=tr("下个疑心时节可能升级为确凿证据，尽快让蛾系手下销毁。",
-                      "Next Suspicion season may upgrade it — have a Moth follower destroy it."),
+            detail=tr("下个疑心时节可能升级为确凿证据，尽快销毁。",
+                      "Next Suspicion season may upgrade it — destroy it soon.")
+            + _evidence_dispatch_tip(state),
             urgent=True,
         ))
     n = stack_quantity(state, "notoriety")
@@ -427,9 +451,47 @@ def _reputation_rules(state: GameState, out: list[Suggestion]):
         out.append(Suggestion(
             priority=95,
             title=tr(f"{n} 张「{display_name('notoriety')}」在场", f"{n}× {display_name('notoriety')} on the table"),
-            detail=tr("疑心时节会用它生成猎人/证据。用心系手下消除，或让它自然衰变前避免再产生。",
-                      "Suspicion seasons turn it into hunters/evidence. Remove via a Heart follower."),
+            detail=tr("疑心时节会用它生成猎人/证据。等它自然衰变并避免再产生；搬去新总部可消 1 张，"
+                      "G&G 高层职位每次上班也会吸走 1 张。",
+                      "Suspicion seasons turn it into hunters/evidence. Let it decay and stop "
+                      "making more; moving HQ absorbs one, and the top Glover & Glover post "
+                      "eats one per shift."),
         ))
+    _hunter_rules(state, out)
+
+
+def _hunter_rules(state: GameState, out: list[Suggestion]):
+    """A hunter on the table — lay out the counterplays with real odds.
+    Tiers from hunting_countermeasures.json: edge/winter 10 / 5 / 1 / none;
+    Dread breaks grim hunters, Fascination the idealists."""
+    hunter = next((s.entity_id for s in _tabletop_stacks(state)
+                   if has_aspect(s.entity_id, "hunter")), None)
+    if not hunter:
+        return
+    edge = _best_follower_aspect(state, "edge")
+    winter = _best_follower_aspect(state, "winter")
+    tier = max(edge, winter)
+    kind = tr("刃", "Edge") if edge >= winter else tr("冬", "Winter")
+    if tier >= 10:
+        plan = tr(f"你有{kind} 10+ 的手下：谈话 = 手下 + 猎人，必成。",
+                  f"Your {kind}-10 follower ends this: talk = follower + hunter, guaranteed.")
+    elif tier >= 5:
+        plan = tr(f"最佳手下{kind} {tier}：袭击约七成，失败折损手下并 +1 邪名。",
+                  f"Best follower has {kind} {tier}: ~70% kill; failure costs them and adds Notoriety.")
+    elif tier >= 1:
+        plan = tr(f"手下{kind}系太弱（{tier}）：袭击仅约三成，另可考虑谈话劝退。",
+                  f"Followers are weak in {kind} ({tier}): ~30% only — consider talking instead.")
+    else:
+        plan = tr("没有刃/冬系手下，硬拼只有一成。",
+                  "No Edge/Winter follower — a bare attack is ~10%.")
+    talk = tr("冷峻的猎人怕「恐惧」、理想主义者怕「入迷」，谈话时塞给他也能劝退。",
+              " Grim hunters break on Dread, idealists on Fascination — slip one in when talking.")
+    out.append(Suggestion(
+        priority=120,
+        title=tr(f"猎人「{display_name(hunter)}」在场", f"Hunter {display_name(hunter)} is prowling"),
+        detail=tr("他会持续收集证据。", "They keep gathering evidence. ") + plan + talk,
+        urgent=True,
+    ))
 
 
 def _affliction_rules(state: GameState, out: list[Suggestion]):
