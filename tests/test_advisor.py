@@ -317,6 +317,29 @@ def test_expedition_plan_needs_scouting_at_guide_level(english):
     assert "70" in plan.detail
 
 
+# --------------------------------------------------------------- cooldowns ---
+
+def test_cooldown_detection():
+    from cultist_adviser.advisor import is_cooldown
+    assert is_cooldown("fatigue")
+    assert is_cooldown("passionexhausted")
+    assert is_cooldown("weapon.a.exhausted")
+    assert is_cooldown("contact.barber.fatigued")
+    assert not is_cooldown("dread")
+    assert not is_cooldown("health")
+    assert not is_cooldown("fascination")
+
+
+def test_cooldowns_dont_trigger_expiring_nag():
+    st = state([card("fatigue", 1, 40), card("passionexhausted", 1, 30),
+                card("skillhealtha"), verb("time", 55)])
+    subs = advise(st).suggestions
+    # Priority 80 and 150 are the expiring nags; neither should fire for cooldowns.
+    assert not any(s.priority in (80, 150) and (
+        "疲" in s.title or "Fatigue" in s.title or "Exhausted" in s.title)
+        for s in subs)
+
+
 # ------------------------------------------------------------- gui logic ---
 
 def test_resource_categorization():
@@ -333,6 +356,37 @@ def test_resource_categorization():
     assert _categorize("fakeway") == "places"
     assert _categorize("fakeinfluence") == "influence"
     assert _categorize("mysteriousthing") == "misc"
+
+
+def test_use_ways_and_aspect_fallback():
+    """The double-click dialog's 'uses' tab: direct id match plus an aspect
+    fallback for follower/acquaintance-style cards."""
+    from cultist_adviser.knowledge import use_ways
+    # A recipe consumes 'fakekey' directly.
+    from cultist_adviser import knowledge as km
+    recipes = [
+        {"id": "r1", "action": "work", "craftable": True,
+         "req": {"fakekey": 1, "reason": 1}, "eff": {"funds": 1}},
+        {"id": "r2", "action": "talk", "craftable": True,
+         "req": {"fakeaspect": 1, "dread": 1}, "eff": {"contentment": 1}},
+    ]
+    obtain = {}
+    uses = {}
+    for i, r in enumerate(recipes):
+        for k in r["req"]:
+            uses.setdefault(k, []).append(i)
+    aspects = {"fakekey": {}, "fakepivot": {"fakeaspect": 1}}
+    orig = km._recipes, km._uses, km._el_aspects
+    km._recipes, km._uses, km._el_aspects = recipes, uses, aspects
+    try:
+        direct = use_ways("fakekey")
+        assert direct and "work" in direct[0].lower() or "作业" in direct[0]
+        via_aspect = use_ways("fakepivot")
+        assert via_aspect, "aspect fallback should surface the recipe"
+        empty = use_ways("nothing")
+        assert empty == []
+    finally:
+        km._recipes, km._uses, km._el_aspects = orig
 
 
 def test_pause_detection_logic():

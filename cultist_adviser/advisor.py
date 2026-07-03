@@ -85,8 +85,17 @@ TIMED_AFFLICTIONS = {
 FUTURE_DREAD = ("dread", "restlessness", "influencemoth")
 
 # Cards whose decay is welcome or harmless — never nag "use it before it expires".
-GOOD_RIDDANCE = {"dread", "fascination", "notoriety", "mystique", "restlessness",
-                 "fatigue"}  # fatigue decays back into health
+GOOD_RIDDANCE = {"dread", "fascination", "notoriety", "mystique", "restlessness"}
+
+# Cooldown states — the card is temporarily unusable but decays back to a
+# usable form (fatigue -> health, weapon.a.exhausted -> weapon.a, and so on).
+# Recovery is what you want, so we neither nag nor dress the timer as red.
+COOLDOWN_BASES = {"fatigue", "disillusionment", "passionexhausted", "concentration"}
+COOLDOWN_SUFFIXES = (".fatigued", "_fatigued", ".exhausted", "_exhausted")
+
+
+def is_cooldown(entity_id: str) -> bool:
+    return entity_id in COOLDOWN_BASES or entity_id.endswith(COOLDOWN_SUFFIXES)
 
 # Season forecast: season element id stored in the time verb -> per-season prep advice.
 SEASON_PREP = {
@@ -593,7 +602,8 @@ def _generic_rules(state: GameState, out: list[Suggestion]):
     for s in _tabletop_stacks(state):
         if 0 < s.lifetime_remaining <= 60 and s.entity_id not in covered \
                 and s.entity_id not in TIMED_AFFLICTIONS \
-                and s.entity_id not in GOOD_RIDDANCE:
+                and s.entity_id not in GOOD_RIDDANCE \
+                and not is_cooldown(s.entity_id):
             expiring.setdefault(s.entity_id, []).append(s.lifetime_remaining)
     for eid, lives in expiring.items():
         soonest = min(lives)

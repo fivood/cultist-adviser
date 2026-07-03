@@ -16,7 +16,7 @@ file, never the game window: no screen capture, no input simulation.
 ### 无需 Python
 
 从 [Releases](https://github.com/fivood/cultist-adviser/releases)
-下载 `CultistAdviser-v0.2.0.zip`，解压后双击 `CultistAdviser.exe`。
+下载最新的 `CultistAdviser-vX.Y.Z.zip`，解压后双击 `CultistAdviser.exe`。
 压缩包内 `使用说明.txt` 有详细用法。
 
 ### 源码运行
@@ -91,7 +91,9 @@ python -m cultist_adviser
 
 **场上资源表**——按类别分组的可折叠树（威胁/资源/碎片/秘传/影响/书籍/
 人员/地点/其他），组内按到期时间排序；筛选框和"只看倒计时"开关；
-多张同名卡展开看各自倒计时；双击卡牌查"获得方式"（配方反查）。
+多张同名卡展开看各自倒计时；双击卡牌打开卡片说明（**用途** + **获得方式**
+两个 tab，直接看这张卡能与什么配方一起投入哪个行动格）。冷却态卡牌
+（疲劳、耗尽、恢复中的手下/武器等）以蓝色标记，不会催"尽快使用"。
 
 **分层建议面板**——⚠ 紧急 / ● 建议 / ○ 情报三档视觉分级，
 危机永远醒目在顶，背景情报静静垫底。

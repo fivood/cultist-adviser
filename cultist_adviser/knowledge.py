@@ -18,6 +18,7 @@ LORE_ASPECT_NAMES = ("edge", "forge", "grail", "heart", "knock",
 
 _recipes: list[dict] = []          # {id, action, craftable, req{}, eff{}}
 _obtain: dict[str, list[int]] = {}  # element id -> indices into _recipes
+_uses: dict[str, list[int]] = {}    # element id -> recipes that take it as input
 _el_aspects: dict[str, dict] = {}   # element id -> {aspect: value}
 _vaults: dict[str, list[str]] = {}  # expedition site -> obstacle element ids
 _counters: dict[str, list[str]] = {}  # obstacle -> lore aspects that beat it
@@ -86,13 +87,14 @@ def _parse_expeditions() -> tuple[dict, dict]:
 
 
 def _load():
-    global _recipes, _obtain, _el_aspects, _vaults, _counters
+    global _recipes, _obtain, _uses, _el_aspects, _vaults, _counters
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
             _recipes, _obtain = cache["recipes"], cache["obtain"]
             _el_aspects = cache["aspects"]
             _vaults, _counters = cache["vaults"], cache["counters"]
+            _uses = cache["uses"]
             return  # KeyError on caches from older versions -> rebuild below
         except Exception:
             pass
@@ -135,15 +137,19 @@ def _load():
                                         "craftable": bool(r.get("craftable", False)),
                                         "req": req, "eff": eff})
     obtain: dict[str, list[int]] = {}
+    uses: dict[str, list[int]] = {}
     for i, r in enumerate(recipes):
         for eid in r["eff"]:
             obtain.setdefault(eid, []).append(i)
-    _recipes, _obtain = recipes, obtain
+        for eid in r["req"]:
+            uses.setdefault(eid, []).append(i)
+    _recipes, _obtain, _uses = recipes, obtain, uses
     _el_aspects = _parse_element_aspects()
     _vaults, _counters = _parse_expeditions()
     if recipes:
         try:
             CACHE_PATH.write_text(json.dumps({"recipes": recipes, "obtain": obtain,
+                                              "uses": uses,
                                               "aspects": _el_aspects,
                                               "vaults": _vaults,
                                               "counters": _counters},
@@ -185,6 +191,49 @@ def _ranked_ways(entity_id: str, available: set | None) -> list[dict]:
 
 def obtain_ways(entity_id: str, limit: int = 6, available: set | None = None) -> list[str]:
     return [_way_text(r) for r in _ranked_ways(entity_id, available)[:limit]]
+
+
+def _use_text(r: dict, hero: str) -> str:
+    """Format a recipe as 'verb + other-inputs → result', with the pivot card
+    downplayed since we're viewing from its perspective."""
+    other = [f"{display_name(k)}×{n}" if n > 1 else display_name(k)
+             for k, n in r["req"].items() if k != hero]
+    inputs = " + ".join(other) if other else tr("直接投入", "on its own")
+    text = f"「{display_name(r['action'])}」 {inputs}  →  {recipe_name(r['id'])}"
+    if not r["craftable"]:
+        text += tr("（连锁触发）", " (follow-up)")
+    return text
+
+
+def use_ways(entity_id: str, limit: int = 8, available: set | None = None) -> list[str]:
+    """Recipes that consume this card as input. Craftable first, then whichever
+    the player can pay for right now, then fewest extra inputs. When nothing
+    matches the id directly (typical for follower/acquaintance/prisoner cards),
+    fall back to the card's own aspects — a card is a legitimate stand-in for
+    any aspect it carries."""
+    eid = entity_id.lower()
+    avail = {a.lower() for a in available} if available else set()
+
+    def key(r):
+        missing = sum(1 for k in r["req"]
+                      if k != eid and k not in avail) if avail else 0
+        return (not r["craftable"], missing, len(r["req"]))
+
+    ways, seen = [], set()
+    indices = list(_uses.get(eid, []))
+    if not indices:
+        for aspect in _el_aspects.get(eid, {}):
+            indices.extend(_uses.get(aspect, []))
+    for i in indices:
+        r = _recipes[i]
+        sig = (r["action"], tuple(sorted(r["req"].items())),
+               tuple(sorted(r["eff"].items())))
+        if sig in seen:
+            continue
+        seen.add(sig)
+        ways.append(r)
+    pivot = eid if _uses.get(eid) else next(iter(_el_aspects.get(eid, {})), eid)
+    return [_use_text(r, pivot) for r in sorted(ways, key=key)[:limit]]
 
 
 def element_aspects(entity_id: str) -> dict:

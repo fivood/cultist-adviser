@@ -13,8 +13,15 @@ from pathlib import Path
 from .config import SAVE_PATH, SAVE_POLL_INTERVAL, PROJECT_DIR
 from .save_parser import parse_save
 from . import lexicon
-from .advisor import advise, Advice, ALERT_VERBS, SPOILER_GUIDE
-from .knowledge import obtain_ways, element_aspects
+from .advisor import (advise, Advice, ALERT_VERBS, SPOILER_GUIDE, is_cooldown,
+                      GOOD_RIDDANCE)
+
+
+def _decay_is_harmless(entity_id: str) -> bool:
+    """The card's disappearance is welcome or a normal cooldown — never dress
+    it as an emergency in the resource table."""
+    return is_cooldown(entity_id) or entity_id in GOOD_RIDDANCE
+from .knowledge import obtain_ways, use_ways, element_aspects
 
 SETTINGS_PATH = PROJECT_DIR / "settings.json"
 
@@ -67,8 +74,16 @@ UI = {
     "review": ("复盘", "Review"),
     "resources_hint": ("场上资源（双击卡牌查看获得方式）",
                        "Table resources (double-click a card for how to obtain it)"),
-    "obtain_title": ("获得方式：{}", "How to obtain: {}"),
+    "card_title": ("卡片说明：{}", "Card: {}"),
+    "tab_obtain": ("获得方式", "How to obtain"),
+    "tab_uses": ("用途", "Uses"),
     "obtain_none": ("没有已知配方直接产出这张卡。", "No known recipe produces this card."),
+    "uses_none": ("没有已知配方以这张卡作为原料。", "No known recipe consumes this card."),
+    "uses_hint": ("下面的配方以这张卡为原料——放入行动格并配上所需其他卡即可触发。",
+                  "These recipes take this card as an input — slot it with the extras "
+                  "into the matching verb to trigger."),
+    "obtain_hint": ("下面的配方能产出这张卡。",
+                    "These recipes produce this card."),
     "paused": ("已暂停？计时已冻结", "Paused? timers frozen"),
     "sec_urgent": ("⚠ 紧急", "⚠ URGENT"),
     "sec_advice": ("● 建议", "● Advice"),
@@ -228,6 +243,7 @@ class AdvisorApp:
         self.res_tree.column("qty", width=50, anchor="e")
         self.res_tree.column("life", width=80, anchor="e")
         self.res_tree.tag_configure("expiring", foreground="#c62828")
+        self.res_tree.tag_configure("cooldown", foreground="#5468a8")
         self.res_tree.tag_configure("group", font=("Microsoft YaHei UI", 9, "bold"))
         self.res_tree.pack(fill="both", expand=True)
         self.res_tree.bind("<Double-1>", self._show_obtain_ways)
@@ -273,19 +289,31 @@ class AdvisorApp:
         if not eid:
             return
         available = {r.entity_id for r in self.advice.resources} if self.advice else None
-        ways = obtain_ways(eid, limit=8, available=available)
+        obtain = obtain_ways(eid, limit=8, available=available)
+        uses = use_ways(eid, limit=12, available=available)
         win = tk.Toplevel(self.root)
-        win.title(_t("obtain_title").format(lexicon.display_name(eid)))
-        win.geometry("560x260")
+        win.title(_t("card_title").format(lexicon.display_name(eid)))
+        win.geometry("620x360")
         win.attributes("-topmost", self.topmost_var.get())
-        text = tk.Text(win, wrap="word", font=("Microsoft YaHei UI", 10), relief="flat")
-        if ways:
-            for w in ways:
-                text.insert("end", f"• {w}\n")
-        else:
-            text.insert("end", _t("obtain_none"))
-        text.configure(state="disabled")
-        text.pack(fill="both", expand=True, padx=8, pady=8)
+        nb = ttk.Notebook(win)
+        nb.pack(fill="both", expand=True, padx=8, pady=8)
+        for tab_key, hint_key, empty_key, items in (
+                ("tab_uses", "uses_hint", "uses_none", uses),
+                ("tab_obtain", "obtain_hint", "obtain_none", obtain)):
+            frame = ttk.Frame(nb)
+            nb.add(frame, text=_t(tab_key))
+            text = tk.Text(frame, wrap="word", font=("Microsoft YaHei UI", 10),
+                           relief="flat")
+            if items:
+                text.insert("end", _t(hint_key) + "\n\n", "hint")
+                for it in items:
+                    text.insert("end", f"• {it}\n")
+            else:
+                text.insert("end", _t(empty_key))
+            text.tag_configure("hint", foreground="#888888",
+                               font=("Microsoft YaHei UI", 9))
+            text.configure(state="disabled")
+            text.pack(fill="both", expand=True)
 
     def _apply_language_chrome(self):
         self.root.title(_t("title"))
@@ -438,7 +466,10 @@ class AdvisorApp:
             rows.sort(key=lambda x: (min(x[2]) if x[2] else float("inf"), x[1]))
             total = sum(r.quantity for r, _, _ in rows)
             grp_soonest = min((min(l) for _, _, l in rows if l), default=0.0)
-            gtags = ("group", "expiring") if 0 < grp_soonest <= 30 else ("group",)
+            emergency_soonest = min(
+                (min(l) for r, _, l in rows if l and not _decay_is_harmless(r.entity_id)),
+                default=0.0)
+            gtags = ("group", "expiring") if 0 < emergency_soonest <= 30 else ("group",)
             gitem = self.res_tree.insert(
                 "", "end", tags=gtags,
                 open=self._grp_open.get(key, key in GROUP_DEFAULT_OPEN),
@@ -447,15 +478,23 @@ class AdvisorApp:
             self._group_keys[gitem] = key
             for r, name, lives in rows:
                 soonest = min(lives) if lives else 0.0
-                tags = ("expiring",) if lives and soonest <= 30 else ()
+                harmless = _decay_is_harmless(r.entity_id)
+                if harmless and lives:
+                    tags = ("cooldown",)
+                elif lives and soonest <= 30:
+                    tags = ("expiring",)
+                else:
+                    tags = ()
                 parent = self.res_tree.insert(
-                    gitem, "end", tags=tags, open=bool(lives) and soonest <= 60,
+                    gitem, "end", tags=tags,
+                    open=bool(lives) and soonest <= 60 and not harmless,
                     text=name,
                     values=(r.quantity, _fmt_secs(soonest) if lives else _t("permanent")))
                 self._res_items[parent] = r.entity_id
                 if len(lives) > 1:
                     for i, lv in enumerate(lives, 1):
-                        child_tags = ("expiring",) if lv <= 30 else ()
+                        child_tags = ("cooldown",) if harmless else \
+                            (("expiring",) if lv <= 30 else ())
                         self.res_tree.insert(parent, "end", tags=child_tags,
                                              text="  " + _t("nth").format(i),
                                              values=("", _fmt_secs(lv)))
