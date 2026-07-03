@@ -11,7 +11,7 @@ from .config import GAME_DIR, PROJECT_DIR
 
 CONTENT_DIR = GAME_DIR / "cultistsimulator_Data" / "StreamingAssets" / "content"
 CACHE_PATH = PROJECT_DIR / "lexicon_cache.json"
-SECTIONS = ("elements", "verbs", "legacies")
+SECTIONS = ("elements", "verbs", "legacies", "endings")
 
 _lexicon: dict[str, dict[str, str]] = {}
 _recipes: dict[str, dict[str, str]] = {}
@@ -88,6 +88,8 @@ def _load():
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+            if cache.get("sections") != list(SECTIONS):
+                raise ValueError("cache built with different sections")
             _lexicon = cache["entities"]
             _recipes = cache["recipes"]
             return
@@ -101,7 +103,8 @@ def _load():
     _lexicon, _recipes = lex, rec
     if lex:
         try:
-            CACHE_PATH.write_text(json.dumps({"entities": lex, "recipes": rec},
+            CACHE_PATH.write_text(json.dumps({"sections": list(SECTIONS),
+                                              "entities": lex, "recipes": rec},
                                              ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass

@@ -40,6 +40,8 @@ class GameState:
     tokens: list[Token] = field(default_factory=list)
     # Dealer's draw piles, e.g. "seasonevents_draw" -> remaining season cards.
     draw_piles: dict[str, list[str]] = field(default_factory=dict)
+    created_at: str = ""   # character DateTimeCreated — identifies one run
+    ending_id: str = ""    # EndingTriggeredId, set once the run has ended
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -137,6 +139,8 @@ def parse_save(path: str) -> GameState:
         version=char.get("CreatedInVersion", {}).get("Version", ""),
         tokens=tokens,
         draw_piles=_parse_draw_piles(root),
+        created_at=char.get("DateTimeCreated") or "",
+        ending_id=char.get("EndingTriggeredId") or "",
         raw=raw,
     )
 

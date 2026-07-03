@@ -33,9 +33,15 @@ UI = {
     "gain": ("+{n} {name}", "+{n} {name}"),
     "lose": ("-{n} {name}", "-{n} {name}"),
     "urgent_new": ("！警报：{}", "! Alert: {}"),
-    "start": ("会话开始（{who} · {legacy}）", "Session start ({who} · {legacy})"),
+    "start": ("记录开始（{who} · {legacy}）", "Recording starts ({who} · {legacy})"),
+    "verb_start": ("▶ {verb}：{recipe}", "▶ {verb}: {recipe}"),
+    "ending": ("🏁 本局结束：{}", "🏁 Run over: {}"),
+    "ended_stat": (" · 结局：{}", " · ending: {}"),
     "legend": ("资金=蓝 恐惧=红 入迷=紫", "Funds=blue Dread=red Fascination=purple"),
 }
+
+# The time verb restarts every 60s; logging each cycle would drown the history.
+UNLOGGED_VERBS = {"time", "time.exile"}
 
 
 def _t(key: str) -> str:
@@ -60,6 +66,18 @@ def extract_events(snaps: list[dict]) -> list[dict]:
             for verb in sorted(prev_danger.keys() - cur_danger.keys()):
                 events.append({"t": s["t"], "kind": "danger_end", "id": verb,
                                "recipe": prev_danger[verb]})
+
+            # The player's choices: a verb starting (or switching to) a recipe.
+            prev_recipes = {v[0]: v[1] for v in prev["verbs"] if v[2] > 0}
+            for verb, recipe, left in s["verbs"]:
+                if left <= 0 or verb in UNLOGGED_VERBS or verb in DANGER_VERBS:
+                    continue
+                if prev_recipes.get(verb) != recipe:
+                    events.append({"t": s["t"], "kind": "verb_start",
+                                   "id": verb, "recipe": recipe})
+
+            if s.get("ending") and not prev.get("ending"):
+                events.append({"t": s["t"], "kind": "ending", "id": s["ending"]})
 
             keys = set(prev["resources"]) | set(s["resources"])
             for k in sorted(keys):
@@ -92,11 +110,17 @@ def event_text(ev: dict) -> str:
         return _t("danger_end").format(_danger_name(ev))
     if kind == "urgent":
         return _t("urgent_new").format(ev["text"])
+    if kind == "verb_start":
+        return _t("verb_start").format(verb=display_name(ev["id"]),
+                                       recipe=lexicon.recipe_name(ev["recipe"]))
+    if kind == "ending":
+        return _t("ending").format(display_name(ev["id"]))
     return _t(kind).format(n=ev["n"], name=display_name(ev["id"]))
 
 
 def is_key_event(ev: dict) -> bool:
-    if ev["kind"] in ("start", "danger_start", "danger_end", "urgent"):
+    if ev["kind"] in ("start", "danger_start", "danger_end", "urgent",
+                      "verb_start", "ending"):
         return True
     return ev.get("id") in KEY_CARDS
 
@@ -105,12 +129,16 @@ def summarize(snaps: list[dict], events: list[dict]) -> str:
     t0, t1 = snaps[0]["t"], snaps[-1]["t"]
     m, s = divmod(int(t1 - t0), 60)
     funds = [sn["resources"].get("funds", 0) for sn in snaps]
-    return _t("stats").format(
+    text = _t("stats").format(
         dur=f"{m}:{s:02d}", n=len(snaps),
         fmin=min(funds), fmax=max(funds),
         danger=sum(1 for e in events if e["kind"] == "danger_start"),
         urgent=sum(1 for e in events if e["kind"] == "urgent"),
     )
+    ending = next((sn["ending"] for sn in reversed(snaps) if sn.get("ending")), "")
+    if ending:
+        text += _t("ended_stat").format(display_name(ending))
+    return text
 
 
 SERIES = (("funds", "#1565c0"), ("dread", "#c62828"), ("fascination", "#6a1b9a"))
@@ -230,7 +258,7 @@ class ReviewWindow:
             tags = ()
             if ev["kind"] in ("danger_start", "urgent"):
                 tags = ("danger",)
-            elif ev["kind"] == "danger_end":
+            elif ev["kind"] in ("danger_end", "ending"):
                 tags = ("good",)
             self.tree.insert("", "end", tags=tags,
                              values=(f"{m}:{s:02d}", event_text(ev)))

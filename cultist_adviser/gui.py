@@ -217,7 +217,7 @@ class AdvisorApp:
                 self.save_deadline = min(running) if running else 0.0
                 self.was_paused = False
                 try:
-                    self.recorder.record(self.advice)
+                    self.recorder.record(self.advice, self.state)
                 except OSError:
                     pass  # recording must never break the advisor
                 self._set_status()
