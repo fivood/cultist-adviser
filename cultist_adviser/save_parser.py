@@ -38,6 +38,8 @@ class GameState:
     active_legacy: str
     version: str
     tokens: list[Token] = field(default_factory=list)
+    # Dealer's draw piles, e.g. "seasonevents_draw" -> remaining season cards.
+    draw_piles: dict[str, list[str]] = field(default_factory=dict)
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -105,6 +107,18 @@ def _collect_tokens(sphere: dict, out: list) -> None:
                 _collect_tokens(s, out)
 
 
+def _parse_draw_piles(root: dict) -> dict[str, list[str]]:
+    piles: dict[str, list[str]] = {}
+    for sphere in (root.get("DealersTable") or {}).get("Spheres", []):
+        pile_id = sphere.get("GoverningSphereSpec", {}).get("Id", "")
+        if not pile_id:
+            continue
+        cards = [t.get("Payload", {}).get("EntityId", "")
+                 for t in sphere.get("Tokens", [])]
+        piles[pile_id] = [c for c in cards if c]
+    return piles
+
+
 def parse_save(path: str) -> GameState:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
@@ -122,6 +136,7 @@ def parse_save(path: str) -> GameState:
         active_legacy=char.get("ActiveLegacyId", ""),
         version=char.get("CreatedInVersion", {}).get("Version", ""),
         tokens=tokens,
+        draw_piles=_parse_draw_piles(root),
         raw=raw,
     )
 

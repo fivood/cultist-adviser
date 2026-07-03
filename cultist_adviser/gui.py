@@ -12,7 +12,7 @@ from pathlib import Path
 from .config import SAVE_PATH, SAVE_POLL_INTERVAL
 from .save_parser import parse_save
 from . import lexicon
-from .advisor import advise, Advice, DANGER_VERBS
+from .advisor import advise, Advice, ALERT_VERBS
 from .knowledge import obtain_ways
 from .recorder import SessionRecorder
 from .review import ReviewWindow
@@ -268,7 +268,7 @@ class AdvisorApp:
             self.verb_tree.delete(*self.verb_tree.get_children())
             for v in self.advice.verbs:
                 left = max(0.0, v.time_remaining - drift) if v.time_remaining > 0 else 0.0
-                tags = ("danger",) if v.verb_id in DANGER_VERBS else ()
+                tags = ("danger",) if v.verb_id in ALERT_VERBS else ()
                 name = lexicon.display_name(v.verb_id)
                 if name == v.verb_id and v.recipe_id:  # season verbs have no label of their own
                     name = lexicon.recipe_name(v.recipe_id)

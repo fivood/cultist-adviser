@@ -25,6 +25,44 @@ DANGER_VERBS = {
     "visions": ["dread", "fleeting"],
 }
 
+# Other timed situations that can kill or end the run, with what to do.
+# (verb_id, recipe_substrings or None for any recipe, priority, zh, en).
+# Verb/recipe ids and counters verified against the game's recipe JSON
+# (hazards.json, hunting.json, talking_2_interactions.json, time.json,
+# long_recipes_attacks.json, ascension.json).
+DOOM_SITUATIONS = [
+    ("ambition", ("rival",), 195,
+     "对手的飞升仪式已经开始，完成即是你的败北结局。立刻打断：刃系手下暗杀，或抢先完成自己的飞升。",
+     "The rival's ascension rite is underway — if it completes, you lose. Interrupt it: "
+     "an Edge follower's knife, or finish your own ascension first."),
+    ("suspicion", ("pretrial", "trial", "question", "mitigation", "favour"), 190,
+     "审判进行中！投入「当局欠下的人情」可免罪；没有人情则大概率失去手下，若受审的是你自己，定罪即游戏结束。",
+     "A trial is in progress! Slot a Favour from the authorities to walk free; without one "
+     "you'll likely lose the follower — and if the accused is you, conviction ends the game."),
+    ("longassault.assassination", None, 185,
+     "长生者派来的刺客动手了！投入手下抵挡（可能战死）或谋杀技能反制；若结算时没有健康/疲惫可失去，直接死亡。",
+     "The Long's assassin strikes! Slot a follower to defend (they may die) or a murder skill; "
+     "if no Health or Fatigue is free to lose when it resolves, you die."),
+    ("long", ("confrontation",), 185,
+     "与长生者的正面对决！需要强力手下或召唤物迎战；梦境对决还会吸走理性/激情，落败即结局。",
+     "A confrontation with the Long! Field a strong follower or summon; the dream duel also "
+     "devours Reason/Passion. Defeat is an ending."),
+    ("poppytime", None, 175,
+     "波比想要一个灵魂。投入一名手下满足她，否则倒计时结束就是「冬之献祭」结局。",
+     "Poppy wants a soul. Feed her a follower, or the countdown ends in the Winter Sacrifice."),
+    ("illhealth", ("sickness",), 155,
+     "疾病正在夺取健康：确保桌面上留有健康或疲惫可被取走——全部被行动占用或已耗尽时会直接死亡。之后的病痛用入梦 + 资金/活力治疗。",
+     "Sickness is coming for your Health: keep a Health or Fatigue card free on the table — "
+     "if none can be taken, you die outright. Treat the affliction after with Dream + Funds/Vitality."),
+    ("longassault", None, 150,
+     "长生者正在袭击：视其策略可能抢劫资金、致伤、绑架手下或摧毁健康。收好资源，手下可投入防御。",
+     "The Long is attacking: depending on their strategy they rob Funds, injure, abduct a "
+     "follower or destroy Health. Guard your resources; a follower can defend."),
+]
+
+# Verbs the GUI should paint red while running.
+ALERT_VERBS = set(DANGER_VERBS) | {v for v, *_ in DOOM_SITUATIONS}
+
 # Fleeting fragments that upgrade an attribute when studied two at a time.
 STUDY_PAIRS = {
     "vitality": "health",
@@ -230,15 +268,87 @@ def _danger_rules(state: GameState, out: list[Suggestion]):
         counters = COUNTERS_OF[verb]
         if n >= 2 and not any(_qty_anywhere(state, c) for c in counters):
             shown = ["contentment"] if verb == "despair" else ["dread", "fleeting"]
+            pending = _season_pending(state, f"season{verb}")
+            detail = tr(f"吸满 3 张就进入死亡倒计时，尽快准备 {_counters_text(shown)}。",
+                        f"3 trigger the death countdown — get {_counters_text(shown)} ready.") \
+                + _obtain_tip(state, shown[0])
+            if not pending:
+                detail += tr("（该时节本轮已抽完，重洗前不会被吸走，不必恐慌。）",
+                             " (That season is out of the deck this cycle — no rush "
+                             "until the reshuffle.)")
             out.append(Suggestion(
-                priority=160,
+                priority=160 if pending else 40,
                 title=tr(f"「{display_name(threat)}」已累计 {n} 张且没有对策卡",
                          f"{n}× {display_name(threat)} accumulated and no counter"),
-                detail=tr(f"吸满 3 张就进入死亡倒计时，尽快准备 {_counters_text(shown)}。",
-                          f"3 trigger the death countdown — get {_counters_text(shown)} ready.")
-                + _obtain_tip(state, shown[0]),
+                detail=detail,
+                urgent=pending,
+            ))
+
+
+def _doom_rules(state: GameState, out: list[Suggestion]):
+    """Timed situations beyond despair/visions that can end the run."""
+    for s in find_situations(state):
+        if s.time_remaining <= 0:
+            continue
+        for verb, recipe_keys, priority, zh, en in DOOM_SITUATIONS:
+            if s.verb_id != verb:
+                continue
+            if recipe_keys and not any(k in (s.recipe_id or "") for k in recipe_keys):
+                continue
+            name = situation_name(s.verb_id, s.recipe_id)
+            out.append(Suggestion(
+                priority=priority,
+                title=tr(f"危险！「{name}」倒计时 {s.time_remaining:.0f} 秒",
+                         f"DANGER! {name} completes in {s.time_remaining:.0f}s"),
+                detail=tr(zh, en),
                 urgent=True,
             ))
+            break
+
+
+def _season_pending(state: GameState, season_id: str) -> bool:
+    """Will this season still arrive before the deck reshuffles? The next season
+    is already drawn into the time verb; the rest sit in the dealer's pile.
+    Conservatively True when the save carries no pile data."""
+    nxt, _ = _next_season(state)
+    if nxt == season_id:
+        return True
+    pile = state.draw_piles.get("seasonevents_draw")
+    if pile is None:
+        return True
+    return season_id in pile
+
+
+def _season_deck_rules(state: GameState, out: list[Suggestion]):
+    """Show what the seasons deck still holds this cycle (it reshuffles empty)."""
+    pile = state.draw_piles.get("seasonevents_draw")
+    if pile is None:
+        return
+    if not pile:
+        out.append(Suggestion(14,
+            tr("时节牌库已抽空，即将重洗", "Seasons deck empty — reshuffle imminent"),
+            tr("重洗后所有时节重新入库（包括绝望和幻象）。",
+               "Every season returns to the deck, Despair and Visions included.")))
+        return
+    counts: dict[str, int] = {}
+    for c in pile:
+        counts[c] = counts.get(c, 0) + 1
+    if get_language() == "zh":
+        listing = "、".join(f"{display_name(c)}×{n}" for c, n in counts.items())
+    else:
+        listing = ", ".join(f"{n}× {display_name(c)}" for c, n in counts.items())
+    nxt, _ = _next_season(state)
+    gone = [f"season{v}" for v in ("despair", "visions")
+            if f"season{v}" not in counts and nxt != f"season{v}"]
+    detail = listing + tr("。", ".")
+    if gone:
+        names = "、".join(display_name(g) for g in gone) if get_language() == "zh" \
+            else " / ".join(display_name(g) for g in gone)
+        detail += tr(f"{names}本轮已抽完，重洗前不会再来。",
+                     f" {names} won't come again until the reshuffle.")
+    out.append(Suggestion(14,
+        tr(f"本轮时节牌库还剩 {len(pile)} 张", f"Seasons left this cycle: {len(pile)}"),
+        detail))
 
 
 def _season_forecast_rules(state: GameState, out: list[Suggestion]):
@@ -364,7 +474,9 @@ def _pair_study_rules(state: GameState, out: list[Suggestion]) -> set[str]:
 
 def _generic_rules(state: GameState, out: list[Suggestion]):
     _danger_rules(state, out)
+    _doom_rules(state, out)
     _season_forecast_rules(state, out)
+    _season_deck_rules(state, out)
     _reputation_rules(state, out)
     _affliction_rules(state, out)
     covered = _pair_study_rules(state, out)
