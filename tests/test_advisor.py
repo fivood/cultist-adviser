@@ -256,6 +256,41 @@ def test_prisoner_source_hint():
     assert alerts and "囚徒来源" not in alerts[0].detail
 
 
+def test_mansus_door_check():
+    # Holds waywood + a lantern-4 lore -> White Door reachable (priority 63).
+    ready = state([card("waywood"), card("fragmentlanternb"),
+                   card("skillhealtha"), verb("time", 55)])
+    assert by_priority(ready, 63) and not by_priority(ready, 61)
+    # Holds waywood but only level-2 lore -> gap report (priority 61).
+    short = state([card("waywood"), card("fragmentlantern"),
+                   card("skillhealtha"), verb("time", 55)])
+    assert by_priority(short, 61) and not by_priority(short, 63)
+    # All doors open -> silence.
+    all_open = state([card("waywood"), card("waywhite"), card("wayspider"),
+                      card("waypeacock"), card("skillhealtha"), verb("time", 55)])
+    assert not by_priority(all_open, 61) and not by_priority(all_open, 63)
+
+
+def test_stag_riddle_names_the_answer(english):
+    held = state([card("waystagbefore_2"), card("fragmentlanternc"),
+                  card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(held, 66)
+    assert alerts and "present it" in alerts[0].detail
+    missing = state([card("waystagbefore_2"), card("skillhealtha"), verb("time", 55)])
+    alerts = by_priority(missing, 66)
+    assert alerts and "not yet" in alerts[0].detail
+
+
+def test_long_scheming_counterplay():
+    st = state([card("skillhealtha"), verb("long", 50, recipe="long.cycle"),
+                verb("time", 55)])
+    assert by_priority(st, 88)
+    dueling = state([card("skillhealtha"),
+                     verb("long", 25, recipe="long.assault.confrontation"),
+                     verb("time", 55)])
+    assert not by_priority(dueling, 88), "confrontation is the doom rule's job"
+
+
 def test_progression_skipped_for_exile():
     st = state([card("acquaintance"), card("fragmentlantern"),
                 verb("time.exile", 55)], legacy="exile")

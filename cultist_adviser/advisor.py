@@ -1347,14 +1347,81 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
                            "a Know-hand ally raises the victory tier.")))
 
 
+# Mansus doors: way card -> single-lore requirement options (dream_mansus.json).
+DOOR_REQS = {
+    "waywood": (("moth", 3), ("knock", 2), ("lantern", 2)),
+    "waywhite": (("lantern", 4), ("knock", 4), ("winter", 4)),
+    "wayspider": (("lantern", 8), ("knock", 8), ("grail", 8)),
+    "waypeacock": (("lantern", 10), ("knock", 10), ("edge", 10)),
+}
+DOOR_ORDER = ("waywood", "waywhite", "wayspider", "waypeacock")
+
+# Stag riddle variants -> the exact level-6 lore each demands.
+STAG_RIDDLE_LORE = {
+    "waystagbefore_1": "fragmentmothc",
+    "waystagbefore_2": "fragmentlanternc",
+    "waystagbefore_3": "fragmentgrailc",
+    "waystagbefore_4": "fragmentknockc",
+    "waystagbefore_5": "fragmentsecrethistoriesc",
+}
+
+
+def _mansus_door_rules(state: GameState, out: list[Suggestion]):
+    """Check the next unopened Mansus door against the lore in hand."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    nxt = next((d for d in DOOR_ORDER if d not in ids), None)
+    if nxt is None:
+        return
+    if nxt == "waywood" and not any(e.startswith("fragment") for e in ids):
+        return  # no lore at all yet — the cult/lore hints cover this stage
+    levels = _lore_levels(state)
+    options = DOOR_REQS[nxt]
+    usable = [(a, n) for a, n in options if levels.get(a, 0) >= n]
+    opts_zh = "/".join(f"{ASPECT_ZH[a]}{n}" for a, n in options)
+    opts_en = "/".join(f"{a} {n}" for a, n in options)
+    if usable:
+        a, n = usable[0]
+        out.append(Suggestion(63,
+            tr(f"可以打开「{display_name(nxt)}」了",
+               f"{display_name(nxt)} is within reach"),
+            tr(f"入梦 = 你的{ASPECT_ZH[a]}系秘传（{levels[a]} 级 ≥ {n}）。新的一层有更高级的影响与秘史。",
+               f"Dream with your {a} lore ({levels[a]} ≥ {n}). A new floor of "
+               "influences and histories awaits.")))
+    else:
+        best = max(options, key=lambda o: levels.get(o[0], 0))
+        have = levels.get(best[0], 0)
+        out.append(Suggestion(61,
+            tr(f"下一扇门：「{display_name(nxt)}」还差秘传",
+               f"Next door: {display_name(nxt)} needs stronger lore"),
+            tr(f"需要 {opts_zh} 任一（单张秘传达到该等级）；你最接近的是{ASPECT_ZH[best[0]]} {have}。",
+               f"Needs any one of {opts_en} on a single lore card; your closest "
+               f"is {best[0]} at {have}.")))
+
+
 def _mansus_expedition_rules(state: GameState, out: list[Suggestion]):
     ids = {s.entity_id for s in _all_stacks(state)}
-    if any(e.startswith("waystagbefore") for e in ids):
+    riddle = next((e for e in ids if e in STAG_RIDDLE_LORE), None)
+    if riddle:
+        answer = STAG_RIDDLE_LORE[riddle]
+        aspect = answer[len("fragment"):-1]
+        held = _qty_anywhere(state, answer) > 0
+        if held:
+            status = tr(f"谜底是「{display_name(answer)}」——你已经有了，入梦出示即可。",
+                        f"The answer is {display_name(answer)} — you hold it; "
+                        "present it in the dream.")
+        else:
+            status = tr(f"谜底是「{display_name(answer)}」——还没有。",
+                        f"The answer is {display_name(answer)} — not yet in hand.")
+            if aspect in SUBVERT_SOURCE:
+                status += _lore6_plan(state, aspect, ASPECT_ZH.get(aspect, aspect))
+            else:  # secret histories can't be subverted into — explore for them
+                status += tr("秘史只能靠探索、远征和读书获得，不能拗转合成。",
+                             " Secret Histories come only from exploring, expeditions "
+                             "and books — no subversion route.")
         out.append(Suggestion(66,
             tr("牡鹿之门谜语待解", "The Stag Door's riddle awaits"),
-            tr("在漫宿出示谜面对应的 6 级秘传即可通过，获得「牡鹿之门道路」（野心 3 级必需）。",
-               "Present the level-6 lore the riddle names to pass and earn Way: Stag Door "
-               "(required for Ambition 3).")))
+            status + tr("通过后获得「牡鹿之门道路」（野心 3 级必需）。",
+                        " Passing earns Way: Stag Door (required for Ambition 3).")))
     vault = next((e for e in ids if has_aspect(e, "vault")), None)
     if vault:
         detail = _vault_battle_plan(state, vault)
@@ -1448,6 +1515,24 @@ def _stage_banner(state: GameState, out: list[Suggestion]):
         tr(d_zh, d_en), spoiler=SPOILER_GUIDE))
 
 
+def _long_rules(state: GameState, out: list[Suggestion]):
+    """A Long is scheming (the 'long' verb runs between attacks) — lay out the
+    proactive counterplay from long_recipes_attacks.json: spy, delay, unmask."""
+    scheming = any(s.verb_id == "long" and s.time_remaining > 0
+                   and "confrontation" not in (s.recipe_id or "")
+                   for s in find_situations(state))
+    if not scheming:
+        return
+    out.append(Suggestion(88,
+        tr("长生者在暗中谋划", "The Long is scheming"),
+        tr("别干等挨打——手下投入他的行动格可以：侦查（提前得知他这轮要做什么）、"
+           "拖延其准备、或多次侦查累积情报揭露真身。情报够了就能选择正面了断。",
+           "Don't just brace — a follower slotted into their action can spy "
+           "(learn this cycle's move in advance), delay their preparations, or "
+           "build intelligence toward unmasking them. Enough intel opens the "
+           "path to a final confrontation.")))
+
+
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         return  # the Exile has none of these systems
@@ -1455,6 +1540,8 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_cult_rules, state, out, SPOILER_GUIDE)
     _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
+    _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
+    _tagged(_long_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
 
