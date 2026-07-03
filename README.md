@@ -12,8 +12,10 @@ file, never the game window: no screen capture, no input simulation.
 - **危险警报**：绝望/幻象死亡倒计时、证据/猎人、病痛/躁动/饥饿、资金水位
 - **时节预报**：读取时光 verb 里已抽出的下一时节，未备好对策时提前警告
   （含野心时节的贡品检查）
-- **新手开局引导**：本体 4 职业（仰慕者/侦探/纨绔子弟/医师）+ DLC 4 职业
-  （舞者/神父/食尸鬼/流亡者），按各职业剧情卡逐步提示，数值取自游戏配方
+- **新手开局引导**：本体 4 职业——有志青年 (The Aspirant)、警探
+  (The Detective)、富家子弟 (The Bright Young Thing)、医师 (The Physician)；
+  DLC 4 职业——舞者 (The Dancer)、教士 (The Priest)、食尸鬼 (The Medium?)、
+  流亡者 (The Exile)。按各职业剧情卡逐步提示，数值取自游戏配方
 - **中后期推进**：建团时机、野心 1→6 各阶段的条件核对、牡鹿之门谜语、
   远征侦察与善后、对手（长生者候补）警报
 - **空闲行动建议**：每个空闲 verb 给出当前最优用法及理由
