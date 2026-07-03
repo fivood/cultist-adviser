@@ -98,12 +98,21 @@ SEASON_PREP = {
 }
 
 
+# Spoiler tiers: 0 survival (mechanical, the game teaches it by killing you),
+# 1 guidance (walkthrough-grade nudges), 2 reveals (hidden state, choice
+# outcomes — things the game means you to discover). The player picks how
+# much the adviser may say; rules consult _spoiler for softened wording.
+SPOILER_SURVIVAL, SPOILER_GUIDE, SPOILER_REVEAL = 0, 1, 2
+_spoiler = SPOILER_REVEAL
+
+
 @dataclass
 class Suggestion:
     priority: int  # higher = more important
     title: str
     detail: str = ""
     urgent: bool = False
+    spoiler: int = SPOILER_SURVIVAL  # minimum spoiler level that shows this
 
 
 @dataclass
@@ -269,7 +278,9 @@ def _danger_rules(state: GameState, out: list[Suggestion]):
         counters = COUNTERS_OF[verb]
         if n >= 2 and not any(_qty_anywhere(state, c) for c in counters):
             shown = ["contentment"] if verb == "despair" else ["dread", "fleeting"]
-            pending = _season_pending(state, f"season{verb}")
+            # Softening relies on hidden deck knowledge — full-spoiler only.
+            pending = _season_pending(state, f"season{verb}") \
+                if _spoiler >= SPOILER_REVEAL else True
             detail = tr(f"吸满 3 张就进入死亡倒计时，尽快准备 {_counters_text(shown)}。",
                         f"3 trigger the death countdown — get {_counters_text(shown)} ready.") \
                 + _obtain_tip(state, shown[0])
@@ -286,6 +297,14 @@ def _danger_rules(state: GameState, out: list[Suggestion]):
             ))
 
 
+# Keeper-mode wording for story events: point at the danger, keep the mystery.
+DOOM_SOFT = {
+    "poppytime": ("这个倒计时的代价你承受不起——想想这位访客想要的是什么。",
+                  "You cannot afford what this countdown costs — consider what "
+                  "the visitor might want."),
+}
+
+
 def _doom_rules(state: GameState, out: list[Suggestion]):
     """Timed situations beyond despair/visions that can end the run."""
     for s in find_situations(state):
@@ -296,6 +315,8 @@ def _doom_rules(state: GameState, out: list[Suggestion]):
                 continue
             if recipe_keys and not any(k in (s.recipe_id or "") for k in recipe_keys):
                 continue
+            if _spoiler < SPOILER_GUIDE and verb in DOOM_SOFT:
+                zh, en = DOOM_SOFT[verb]
             name = situation_name(s.verb_id, s.recipe_id)
             out.append(Suggestion(
                 priority=priority,
@@ -321,15 +342,25 @@ def _season_pending(state: GameState, season_id: str) -> bool:
 
 
 def _season_deck_rules(state: GameState, out: list[Suggestion]):
-    """Show what the seasons deck still holds this cycle (it reshuffles empty)."""
+    """Show what the seasons deck still holds this cycle (it reshuffles empty).
+    The pile is hidden information: reveal names only at full spoiler; at
+    guide level report the count alone; keepers get nothing."""
     pile = state.draw_piles.get("seasonevents_draw")
-    if pile is None:
+    if pile is None or _spoiler < SPOILER_GUIDE:
         return
     if not pile:
         out.append(Suggestion(14,
             tr("时节牌库已抽空，即将重洗", "Seasons deck empty — reshuffle imminent"),
             tr("重洗后所有时节重新入库（包括绝望和幻象）。",
-               "Every season returns to the deck, Despair and Visions included.")))
+               "Every season returns to the deck, Despair and Visions included."),
+            spoiler=SPOILER_GUIDE))
+        return
+    if _spoiler < SPOILER_REVEAL:
+        out.append(Suggestion(14,
+            tr(f"本轮时节牌库还剩 {len(pile)} 张", f"Seasons left this cycle: {len(pile)}"),
+            tr("抽空后重洗。具体是哪些时节——保持悬念。",
+               "It reshuffles when empty. Which seasons remain stays a mystery."),
+            spoiler=SPOILER_GUIDE))
         return
     counts: dict[str, int] = {}
     for c in pile:
@@ -349,7 +380,7 @@ def _season_deck_rules(state: GameState, out: list[Suggestion]):
                      f" {names} won't come again until the reshuffle.")
     out.append(Suggestion(14,
         tr(f"本轮时节牌库还剩 {len(pile)} 张", f"Seasons left this cycle: {len(pile)}"),
-        detail))
+        detail, spoiler=SPOILER_REVEAL))
 
 
 def _season_forecast_rules(state: GameState, out: list[Suggestion]):
@@ -416,6 +447,8 @@ def _best_follower_aspect(state: GameState, aspect: str) -> int:
 def _evidence_dispatch_tip(state: GameState) -> str:
     """Concrete destroy-evidence plan. Tiers from hunting_countermeasures.json
     (talk = follower + evidence; moth 5 / moth 1 / bare hands)."""
+    if _spoiler < SPOILER_GUIDE:
+        return ""
     moth = _best_follower_aspect(state, "moth")
     if moth >= 5:
         return tr("你有蛾系 5+ 的手下：谈话 = 手下 + 证据，约七成销毁。",
@@ -468,6 +501,17 @@ def _hunter_rules(state: GameState, out: list[Suggestion]):
     hunter = next((s.entity_id for s in _tabletop_stacks(state)
                    if has_aspect(s.entity_id, "hunter")), None)
     if not hunter:
+        return
+    if _spoiler < SPOILER_GUIDE:
+        out.append(Suggestion(
+            priority=120,
+            title=tr(f"猎人「{display_name(hunter)}」在场",
+                     f"Hunter {display_name(hunter)} is prowling"),
+            detail=tr("他会持续收集证据。别给他留下把柄——或者想办法让他知难而退。",
+                      "They keep gathering evidence. Leave nothing to find — "
+                      "or persuade them this is a bad idea."),
+            urgent=True,
+        ))
         return
     edge = _best_follower_aspect(state, "edge")
     winter = _best_follower_aspect(state, "winter")
@@ -696,10 +740,11 @@ def _idle_verb_rules(state: GameState, out: list[Suggestion]):
     for s in idle:
         best = _best_idle_use(state, s.verb_id)
         name = display_name(s.verb_id)
-        if best:
+        if best and _spoiler >= SPOILER_GUIDE:
             out.append(Suggestion(
                 priority=45,
                 title=tr(f"「{name}」空闲，建议：{best[0]}", f"{name} idle — try: {best[1]}"),
+                spoiler=SPOILER_GUIDE,
             ))
         else:
             out.append(Suggestion(
@@ -724,20 +769,32 @@ def _opening_aspirant(state: GameState, out: list[Suggestion]):
                "10s for 2 Funds and 1 Health; the intro dream (Passion + Contentment) "
                "and the bequest in Study follow on their own.")))
     if q("bequestintro"):
+        if _spoiler >= SPOILER_REVEAL:
+            detail = tr("配理性 → 启明野心 + 灯之秘传（稳健学者路线）；配激情 → 权力野心 + 铸之秘传。"
+                        "两条路都附送书商的地址，之后就能探索买书了。",
+                        "With Reason → Enlightenment ambition + Lantern lore (the steady scholar "
+                        "route); with Passion → Power ambition + Forge lore. Either way you also "
+                        "get the book dealer's address for later exploring.")
+        else:
+            detail = tr("配理性或配激情研读，会走向不同的道路——这是你的第一个命运时刻，凭直觉选也是一种玩法。",
+                        "Study it with Reason or with Passion — different roads open. This is "
+                        "your first moment of fate; trusting your gut is a way to play.")
         out.append(Suggestion(115,
             tr(f"关键抉择：研读「{display_name('bequestintro')}」",
                f"Key choice: study {display_name('bequestintro')}"),
-            tr("配理性 → 启明野心 + 灯之秘传（稳健学者路线）；配激情 → 权力野心 + 铸之秘传。"
-               "两条路都附送书商的地址，之后就能探索买书了。",
-               "With Reason → Enlightenment ambition + Lantern lore (the steady scholar route); "
-               "with Passion → Power ambition + Forge lore. Either way you also get the book "
-               "dealer's address for later exploring.")))
+            detail))
     if q("contactintro"):
-        out.append(Suggestion(65,
-            tr(f"「{display_name('contactintro')}」：研读它会产生 1 张秘氛",
-               f"{display_name('contactintro')}: studying it yields 1 Mystique"),
-            tr("秘氛在疑心时节会招来猎人，读完记得留意声名。",
-               "Mystique draws hunters in Suspicion seasons — mind your reputation afterwards.")))
+        if _spoiler >= SPOILER_REVEAL:
+            detail = tr("秘氛在疑心时节会招来猎人，读完记得留意声名。",
+                        "Mystique draws hunters in Suspicion seasons — mind your reputation afterwards.")
+            title = tr(f"「{display_name('contactintro')}」：研读它会产生 1 张秘氛",
+                       f"{display_name('contactintro')}: studying it yields 1 Mystique")
+        else:
+            detail = tr("这封信不只是信。读之前想想：了解秘密总有代价。",
+                        "This letter is more than a letter. Knowing secrets always costs something.")
+            title = tr(f"「{display_name('contactintro')}」值得读，也值得掂量",
+                       f"{display_name('contactintro')}: worth reading, worth weighing")
+        out.append(Suggestion(65, title, detail))
 
 
 def _opening_detective(state: GameState, out: list[Suggestion]):
@@ -769,12 +826,17 @@ def _opening_detective(state: GameState, out: list[Suggestion]):
     plotitem = next((e for e in ("legacydetective_plotitem", "legacydetective_plotitem_backup")
                      if q(e)), None)
     if plotitem:
+        detail = tr("研读它推进主线，但会同时产生入迷和恐惧——先备好对策卡再读。",
+                    "Studying it advances the story but yields both Fascination and Dread — "
+                    "have counters ready first.") \
+            if _spoiler >= SPOILER_REVEAL else \
+            tr("它在召唤你打开。打开之前，确认自己的心神经得起看到的东西。",
+               "It wants to be opened. Before you do, be sure your mind can bear "
+               "what it shows.")
         out.append(Suggestion(85,
             tr(f"注意：「{display_name(plotitem)}」是双刃剑",
                f"Careful with {display_name(plotitem)}"),
-            tr("研读它推进主线，但会同时产生入迷和恐惧——先备好对策卡再读。",
-               "Studying it advances the story but yields both Fascination and Dread — "
-               "have counters ready first.")))
+            detail))
 
 
 def _opening_byt(state: GameState, out: list[Suggestion]):
@@ -858,14 +920,21 @@ def _opening_ghoul(state: GameState, out: list[Suggestion]):
                 ("memory.joyful", tr("4 资金 + 健康", "4 Funds + Health"))]
     held = [(e, gain) for e, gain in memories if q(e)]
     if q("ghouljob.first") and held:
-        lines = "；".join(f"「{display_name(e)}」→ {gain}" for e, gain in held) \
-            if get_language() == "zh" else \
-            "; ".join(f"{display_name(e)} → {gain}" for e, gain in held)
+        if _spoiler >= SPOILER_REVEAL:
+            lines = "；".join(f"「{display_name(e)}」→ {gain}" for e, gain in held) \
+                if get_language() == "zh" else \
+                "; ".join(f"{display_name(e)} → {gain}" for e, gain in held)
+            detail = tr(f"{lines}。每次通灵都产生 1 秘氛，攒多了小心疑心时节。",
+                        f"{lines}. Each séance also yields 1 Mystique — watch it "
+                        "before Suspicion seasons.")
+        else:
+            detail = tr("每张回忆都能换来不同的东西——一次放一张，自己见证。通灵总会留下痕迹。",
+                        "Each memory buys something different — feed them one at a time "
+                        "and see. Séances always leave traces.")
         out.append(Suggestion(115,
             tr(f"通灵会：「{display_name('ghouljob.first')}」+ 一张回忆放入「{display_name('work')}」",
                f"Séance: {display_name('ghouljob.first')} + one memory into {display_name('work')}"),
-            tr(f"{lines}。每次通灵都产生 1 秘氛，攒多了小心疑心时节。",
-               f"{lines}. Each séance also yields 1 Mystique — watch it before Suspicion seasons.")))
+            detail))
 
 
 def _opening_exile(state: GameState, out: list[Suggestion]):
@@ -908,6 +977,14 @@ def _is_opening(state: GameState) -> bool:
     return not any(s.entity_id.startswith("skill") for s in _all_stacks(state))
 
 
+def _tagged(rule, state: GameState, out: list[Suggestion], level: int):
+    """Run a rule and raise its suggestions to at least the given spoiler tier."""
+    start = len(out)
+    rule(state, out)
+    for s in out[start:]:
+        s.spoiler = max(s.spoiler, level)
+
+
 def _opening_rules(state: GameState, out: list[Suggestion]):
     legacy = state.active_legacy or ""
     canon = OPENING_ALIASES.get(legacy, legacy)
@@ -915,7 +992,7 @@ def _opening_rules(state: GameState, out: list[Suggestion]):
         canon = "exile"
     guide = OPENING_GUIDES.get(canon)
     if guide:
-        guide(state, out)
+        _tagged(guide, state, out, SPOILER_GUIDE)
     if canon != "exile" and _is_opening(state):
         out.append(Suggestion(55,
             tr("开局阶段目标：稳经济 → 升属性 → 攒秘传",
@@ -924,7 +1001,8 @@ def _opening_rules(state: GameState, out: list[Suggestion]):
                "③ 买书研读攒秘传；④ 凑齐熟人 + 2 级秘传就能建教团。",
                "1) Keep Funds at 5+. 2) Meditate/work up pairs of skill fragments to raise "
                "attributes (Health first — Sickness seasons hurt). 3) Buy and study books for lore. "
-               "4) An Acquaintance + 2nd-level lore founds your cult.")))
+               "4) An Acquaintance + 2nd-level lore founds your cult."),
+            spoiler=SPOILER_GUIDE))
 
 
 # ------------------------------------------------------- progression rules ---
@@ -989,7 +1067,7 @@ def _book_rules(state: GameState, out: list[Suggestion]):
             way = tr(f"你已有「{display_name('textbook' + lang)}」——先研读它获得「{display_name(scholar)}」。",
                      f"You already hold {display_name('textbook' + lang)} — study it "
                      f"for {display_name(scholar)}.")
-        elif pile and ("textbook" + lang) in pile:
+        elif _spoiler >= SPOILER_REVEAL and pile and ("textbook" + lang) in pile:
             way = tr(f"书商的存货里还有「{display_name('textbook' + lang)}」，去买一本。",
                      f"The bookshop still stocks {display_name('textbook' + lang)} — buy it.")
         elif lang in TEXTBOOK_LANGS:
@@ -1002,7 +1080,7 @@ def _book_rules(state: GameState, out: list[Suggestion]):
         out.append(Suggestion(72,
             tr(f"{len(books)} 本书看不懂（缺「{display_name(scholar)}」）",
                f"{len(books)} book(s) unreadable — no {display_name(scholar)}"),
-            titles + tr("。", ". ") + way))
+            titles + tr("。", ". ") + way, spoiler=SPOILER_GUIDE))
 
     if pile is not None:
         stocked_textbooks = [b for b in dict.fromkeys(pile)
@@ -1018,12 +1096,13 @@ def _book_rules(state: GameState, out: list[Suggestion]):
                 detail += tr(f"在售教材：{names}。", f" Textbooks in stock: {names}.")
             out.append(Suggestion(13,
                 tr(f"书商存货还剩 {len(pile)} 本", f"Bookshop stock: {len(pile)} left"),
-                detail))
+                detail, spoiler=SPOILER_REVEAL))
         else:
             out.append(Suggestion(13,
                 tr("书商已被买空", "The bookshop is bought out"),
                 tr("书店房间到手了——最优总部之一，记得搬过去。",
-                   "The shop premises are yours — one of the best HQs; move in.")))
+                   "The shop premises are yours — one of the best HQs; move in."),
+                spoiler=SPOILER_GUIDE))
 
 
 def _fragment_counts(state: GameState, aspect: str) -> dict[int, int]:
@@ -1121,7 +1200,8 @@ def _rival_rules(state: GameState, out: list[Suggestion]):
                f"Rival {display_name(rival)} is gathering strength"),
             tr("长生者候补会稳步推进自己的飞升。趁早处理：刃系手下暗杀，或加快自己的野心进度。",
                "A would-be Long advances steadily toward their own ascension. Deal with them "
-               "early — an Edge follower's knife, or simply outpace them.")))
+               "early — an Edge follower's knife, or simply outpace them."),
+            spoiler=SPOILER_GUIDE))
 
 
 def _cult_rules(state: GameState, out: list[Suggestion]):
@@ -1217,10 +1297,12 @@ def _mansus_expedition_rules(state: GameState, out: list[Suggestion]):
 
 
 def _vault_battle_plan(state: GameState, vault: str) -> str:
-    """Per-obstacle counters for a known site, rated against your followers;
-    generic scouting advice when the site isn't in the index."""
+    """Per-obstacle counters for a known site, rated against your followers.
+    At guide level the plan appears only once the obstacles are revealed
+    in-game (their cards exist in the save) — scouting keeps its meaning."""
     obstacles = vault_obstacles(vault)
-    if not obstacles:
+    revealed = any(_qty_anywhere(state, o) for o in obstacles)
+    if not obstacles or (_spoiler < SPOILER_REVEAL and not revealed):
         return tr("先派 1 名雇员 + 1 资金侦察，看清全部障碍再上主力。",
                   "Scout first with one hireling + 1 Funds to reveal every obstacle. ")
     lines = []
@@ -1254,11 +1336,11 @@ def _vault_battle_plan(state: GameState, vault: str) -> str:
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         return  # the Exile has none of these systems
-    _rival_rules(state, out)
-    _cult_rules(state, out)
-    _ascension_rules(state, out)
-    _mansus_expedition_rules(state, out)
-    _book_rules(state, out)
+    _rival_rules(state, out)          # tags itself: doom 0, early warning 1
+    _tagged(_cult_rules, state, out, SPOILER_GUIDE)
+    _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
+    _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
+    _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
 
 
 def _ghoul_rules(state: GameState, out: list[Suggestion]):
@@ -1306,7 +1388,9 @@ LEGACY_RULES = {
 }
 
 
-def advise(state: GameState) -> Advice:
+def advise(state: GameState, spoiler: int = SPOILER_REVEAL) -> Advice:
+    global _spoiler
+    _spoiler = spoiler
     advice = Advice(
         character=state.character_name,
         legacy=state.active_legacy,
@@ -1315,12 +1399,22 @@ def advise(state: GameState) -> Advice:
     )
     running = [v for v in advice.verbs if v.time_remaining > 0 and v.verb_id != "time"]
 
-    _generic_rules(state, advice.suggestions)
-    _opening_rules(state, advice.suggestions)
-    _progression_rules(state, advice.suggestions)
+    suggestions: list[Suggestion] = []
+    _generic_rules(state, suggestions)
+    _opening_rules(state, suggestions)
+    _progression_rules(state, suggestions)
     rules = LEGACY_RULES.get(state.active_legacy)
     if rules:
-        rules(state, advice.suggestions)
+        _tagged(rules, state, suggestions, SPOILER_GUIDE)
+
+    shown = [s for s in suggestions if s.spoiler <= spoiler]
+    hidden = len(suggestions) - len(shown)
+    if hidden and spoiler < SPOILER_REVEAL:
+        shown.append(Suggestion(5,
+            tr(f"已按剧透等级收起 {hidden} 条提示", f"{hidden} hint(s) tucked away at this spoiler level"),
+            tr("命运喜欢保守秘密。想看的话，调高顶部的剧透等级。",
+               "Fate keeps its secrets. Raise the spoiler level up top if you must know.")))
+    advice.suggestions = shown
 
     if not advice.suggestions and running:
         advice.suggestions.append(Suggestion(0, tr("等待中", "Waiting"),

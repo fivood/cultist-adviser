@@ -4,16 +4,34 @@ Run with:  python -m cultist_adviser
 Read-only — never touches the game window; you play, it advises.
 Card/verb names come from the game's own localization (中文/English toggle).
 """
+import json
 import time
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
-from .config import SAVE_PATH, SAVE_POLL_INTERVAL
+from .config import SAVE_PATH, SAVE_POLL_INTERVAL, PROJECT_DIR
 from .save_parser import parse_save
 from . import lexicon
-from .advisor import advise, Advice, ALERT_VERBS
+from .advisor import advise, Advice, ALERT_VERBS, SPOILER_GUIDE
 from .knowledge import obtain_ways, element_aspects
+
+SETTINGS_PATH = PROJECT_DIR / "settings.json"
+
+
+def _load_settings() -> dict:
+    try:
+        return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_settings(settings: dict):
+    try:
+        SETTINGS_PATH.write_text(json.dumps(settings, ensure_ascii=False),
+                                 encoding="utf-8")
+    except Exception:
+        pass  # settings must never break the advisor
 from .recorder import SessionRecorder
 from .review import ReviewWindow
 
@@ -57,6 +75,7 @@ UI = {
     "sec_info": ("○ 情报", "○ Info"),
     "filter": ("筛选", "Filter"),
     "timed_only": ("只看倒计时", "Timed only"),
+    "spoiler_names": (("守密人", "顾问", "全知"), ("Keeper", "Adviser", "Omniscient")),
     "grp_threats": ("威胁", "Threats"),
     "grp_core": ("资源与属性", "Resources & abilities"),
     "grp_advancement": ("碎片与课程", "Fragments & lessons"),
@@ -127,6 +146,9 @@ class AdvisorApp:
         self.save_deadline = 0.0  # next guaranteed save, seconds after parsed_at
         self.was_paused = False
         self.recorder = SessionRecorder()
+        self.settings = _load_settings()
+        lexicon.set_language(self.settings.get("language", "zh"))
+        self.spoiler_level = int(self.settings.get("spoiler", SPOILER_GUIDE))
 
         root.geometry("470x660")
         root.attributes("-topmost", True)
@@ -143,11 +165,17 @@ class AdvisorApp:
         self.topmost_btn.pack(side="right")
         self.review_btn = ttk.Button(top, command=self._open_review)
         self.review_btn.pack(side="right", padx=(0, 8))
-        self.lang_var = tk.StringVar(value="中文")
+        self.lang_var = tk.StringVar(
+            value="中文" if lexicon.get_language() == "zh" else "English")
         lang_box = ttk.Combobox(top, textvariable=self.lang_var, width=8,
                                 state="readonly", values=("中文", "English"))
         lang_box.pack(side="right", padx=(0, 8))
         lang_box.bind("<<ComboboxSelected>>", self._switch_language)
+        self.spoiler_var = tk.StringVar()
+        self.spoiler_box = ttk.Combobox(top, textvariable=self.spoiler_var, width=7,
+                                        state="readonly")
+        self.spoiler_box.pack(side="right", padx=(0, 8))
+        self.spoiler_box.bind("<<ComboboxSelected>>", self._switch_spoiler)
 
         nb = ttk.Panedwindow(root, orient="vertical")
         nb.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -217,9 +245,22 @@ class AdvisorApp:
 
     def _switch_language(self, _event=None):
         lexicon.set_language("zh" if self.lang_var.get() == "中文" else "en")
+        self.settings["language"] = lexicon.get_language()
+        _save_settings(self.settings)
         self._apply_language_chrome()
+        self._re_advise()
+
+    def _switch_spoiler(self, _event=None):
+        names = _t("spoiler_names")
+        if self.spoiler_var.get() in names:
+            self.spoiler_level = names.index(self.spoiler_var.get())
+            self.settings["spoiler"] = self.spoiler_level
+            _save_settings(self.settings)
+            self._re_advise()
+
+    def _re_advise(self):
         if self.state is not None:
-            self.advice = advise(self.state)  # re-run rules so suggestion text switches too
+            self.advice = advise(self.state, self.spoiler_level)
             self._set_status()
             self._render()
 
@@ -252,6 +293,9 @@ class AdvisorApp:
         self.review_btn.configure(text=_t("review"))
         self.filter_label.configure(text=_t("filter"))
         self.timed_btn.configure(text=_t("timed_only"))
+        names = _t("spoiler_names")
+        self.spoiler_box.configure(values=names)
+        self.spoiler_var.set(names[self.spoiler_level])
         self.sug_frame.configure(text=_t("suggestions"))
         self.verb_frame.configure(text=_t("verbs"))
         self.res_frame.configure(text=_t("resources_hint"))
@@ -283,7 +327,7 @@ class AdvisorApp:
             self.save_mtime = mtime
             try:
                 self.state = parse_save(str(SAVE_PATH))
-                self.advice = advise(self.state)
+                self.advice = advise(self.state, self.spoiler_level)
                 self.parsed_at = time.time()
                 self.parsed_at_str = time.strftime("%H:%M:%S")
                 running = [v.time_remaining for v in self.advice.verbs

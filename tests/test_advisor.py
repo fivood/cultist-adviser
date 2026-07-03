@@ -273,6 +273,50 @@ def test_expedition_battle_plan_rates_followers(english):
     assert alerts and "fail" in alerts[0].detail
 
 
+# ---------------------------------------------------------- spoiler tiers ---
+
+def test_keeper_hides_guidance_but_keeps_survival():
+    from cultist_adviser.advisor import advise as adv
+    st = state([card("introjob"), card("dread", 2), verb("work"), verb("time", 55)])
+    keeper = adv(st, spoiler=0).suggestions
+    assert not any(s.priority == 120 for s in keeper), "opening guide hidden"
+    assert any(s.priority == 160 for s in keeper), "spiral warning stays"
+    assert any(s.priority == 5 for s in keeper), "hidden-hints note shown"
+    full = adv(st, spoiler=2).suggestions
+    assert any(s.priority == 120 for s in full)
+    assert not any(s.priority == 5 for s in full)
+
+
+def test_bequest_choice_softened_below_full_spoiler():
+    from cultist_adviser.advisor import advise as adv
+    st = state([card("bequestintro"), card("reason"), verb("study"), verb("time", 55)])
+    soft = next(s for s in adv(st, spoiler=1).suggestions if s.priority == 115)
+    full = next(s for s in adv(st, spoiler=2).suggestions if s.priority == 115)
+    assert soft.detail != full.detail
+
+
+def test_season_deck_names_only_at_full_spoiler():
+    from cultist_adviser.advisor import advise as adv
+    piles = {"seasonevents_draw": ["seasonsickness", "seasonambitions"]}
+    st = state([verb("time", 55)], draw_piles=piles)
+    guide = next(s for s in adv(st, spoiler=1).suggestions if s.priority == 14)
+    assert "×" not in guide.detail and "1×" not in guide.detail
+    keeper = adv(st, spoiler=0).suggestions
+    assert not any(s.priority == 14 for s in keeper)
+
+
+def test_expedition_plan_needs_scouting_at_guide_level(english):
+    from cultist_adviser.advisor import advise as adv
+    unscouted = state([card("vaultcapital1"), card("slee_c"),
+                       card("skillhealtha"), verb("time", 55)])
+    hint = next(s for s in adv(unscouted, spoiler=1).suggestions if s.priority == 64)
+    assert "Scout" in hint.detail
+    scouted = state([card("vaultcapital1"), card("guardian_watchers"),
+                     card("slee_c"), card("skillhealtha"), verb("time", 55)])
+    plan = next(s for s in adv(scouted, spoiler=1).suggestions if s.priority == 64)
+    assert "70" in plan.detail
+
+
 # ------------------------------------------------------------- gui logic ---
 
 def test_resource_categorization():

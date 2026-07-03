@@ -3,6 +3,7 @@ __pycache__/
 cultist_adviser/lexicon_cache.json
 cultist_adviser/knowledge_cache.json
 cultist_adviser/logs/
+cultist_adviser/settings.json
 build/
 dist/
 *.spec
