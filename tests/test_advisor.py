@@ -235,6 +235,27 @@ def test_ambition_season_forecast_demands_tribute():
     assert not by_priority(st, 170) and by_priority(st, 15)
 
 
+def test_gentle_season_forecasts():
+    st = state([card("skillhealtha"),
+                card("seasonsilence", sphere="~/tabletop/!time_1/slot"),
+                verb("time", 40)])
+    forecasts = by_priority(st, 15)
+    assert forecasts and forecasts[0].detail, "silence forecast carries the tip"
+    keeper = [s for s in advise(st, spoiler=0).suggestions if s.priority == 15]
+    assert keeper and not keeper[0].detail, "keeper sees the forecast, not the tactic"
+
+
+def test_prisoner_source_hint():
+    st = state([card("ascensionenlightenmentc"), card("skillhealtha"),
+                card("cultlantern_1"), verb("time", 55)])
+    alerts = by_priority(st, 60)
+    assert alerts and ("囚徒来源" in alerts[0].detail or "Prisoners" in alerts[0].detail)
+    with_prisoner = state([card("ascensionenlightenmentc"), card("skillhealtha"),
+                           card("cultlantern_1"), card("auclair_p"), verb("time", 55)])
+    alerts = by_priority(with_prisoner, 60)
+    assert alerts and "囚徒来源" not in alerts[0].detail
+
+
 def test_progression_skipped_for_exile():
     st = state([card("acquaintance"), card("fragmentlantern"),
                 verb("time.exile", 55)], legacy="exile")

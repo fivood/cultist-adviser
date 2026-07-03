@@ -73,6 +73,16 @@ def test_ending_lessons():
         assert not win and "Favour" in text
         text, win = ending_lesson("workvictory")
         assert win
+        text, win = ending_lesson("auclairvictory")
+        assert win and "lover" in text.lower()
+        text, win = ending_lesson("minorforgevictorywithrisen")
+        assert win and "Risen" in text
+        text, win = ending_lesson("ascensioncolonel")
+        assert win and "Exile" in text
+        text, win = ending_lesson("obscurityvictorycfoeslain")
+        assert win and "slain" in text
+        text, win = ending_lesson("majorlanternvictory")
+        assert win and "Apostle" in text
         text, win = ending_lesson("somemoddedending")
         assert not win and text  # generic fallback still says something
     finally:

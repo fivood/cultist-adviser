@@ -3,6 +3,7 @@
 Standalone:  python -m cultist_adviser.review [session_file]
 Also opened from the advisor GUI via the Review button.
 """
+import re
 import sys
 import time
 import tkinter as tk
@@ -95,6 +96,12 @@ ENDING_LESSONS = {
         "The rival ascended first.",
         "Deal with rivals when they surface: an Edge-10 follower's knife is "
         "certain, or simply outpace them."),
+    "rivalascensionapostle": (
+        "长生过甚——使徒之世，仍有对手先你一步登顶。",
+        "使徒线的对手更不容拖延：早侦查、早暗杀，或全速推进伟业。",
+        "Too many Longs — even in the Apostle's era, a rival topped the peak first.",
+        "Apostle-run rivals brook no delay: scout early, strike early, or race "
+        "the Great Work flat out."),
     "foecaughtup": (
         "仇敌追上——痕迹引来了最后的清算。",
         "痕迹是流亡者的命门：控制积累，热度高了立刻换城市。",
@@ -104,14 +111,95 @@ ENDING_LESSONS = {
 }
 
 
+# Every named NPC has a marry-them ending of their own (21 in total).
+MARRIAGE_ENDINGS = frozenset(
+    f"{name}victory" for name in
+    ("tristan", "valciane", "laidlaw", "elridge", "rose", "victor", "saliba",
+     "renira", "violet", "auclair", "enid", "neville", "cat", "clifton",
+     "slee", "porter", "ysabet", "sylvia", "clovette", "dorothy", "leo"))
+
+# One-line route recaps for the named victories: (zh, en).
+VICTORY_NOTES = {
+    "workvictory": (
+        "在格洛弗与格洛弗干到了头，安稳退休。凡人的胜利也是胜利——下一世要不要试试更危险的路？",
+        "Retired at the top of Glover & Glover. A mortal's victory still counts — "
+        "dare a stranger road next life?"),
+    "workvictoryb": (
+        "野心止步于世俗的顶点，潮水退去。",
+        "Ambition crested at a worldly summit, and the tide went out."),
+    "turnasidevictory": (
+        "主动放下了诱惑，全身而退，永享幸福——少有人选的那扇门。",
+        "You set the temptation aside and walked away happy — the door few choose."),
+    "workvictorymarriage": (
+        "嫁入了新的生活（舞者线）。舞台谢幕，帷幕后另有人间。",
+        "Married into a new life (the Dancer's road). The stage went dark; "
+        "life went on behind the curtain."),
+    "minorpalestvictory": (
+        "直至严冬降临——无面者之路的胜利（食尸鬼线）。",
+        "Until the winter comes — the Pale road's victory (the Ghoul's line)."),
+    "minorcrownedgrowthvictory": (
+        "硕果累累——加冕生长之路的胜利（食尸鬼线）。",
+        "Fruit upon fruit — the Crowned Growth's victory (the Ghoul's line)."),
+    "minorknockvictory": (
+        "母亲的臂弯——启之路的胜利（教士线）。",
+        "The Mother's arms — the Knock road's victory (the Priest's line)."),
+    "minormarevictory": (
+        "我们去往何处——梦魇之路的胜利（教士线）。",
+        "Where do we go — the Mare's victory (the Priest's line)."),
+    "victoryvelvet": (
+        "血裔——天鹅绒的隐秘胜利（流亡者线）。",
+        "Velvet's hidden victory — the bloodline endures (the Exile's line)."),
+}
+for _m in ("majorforgevictory", "majorgrailvictory", "majorlanternvictory"):
+    VICTORY_NOTES[_m] = (
+        "使徒大胜——把前世飞升的伟业推至极致。这是系列真正的终点之一。",
+        "An Apostle's major victory — the ascended work carried to its zenith. "
+        "One of the true endings.")
+for _m in ("ascensioncolonel", "ascensionlionsmith", "ascensionwolf"):
+    VICTORY_NOTES[_m] = (
+        "将自己献给无尽仇怨，成为战争三相的器皿——流亡者的飞升。",
+        "Given over to endless enmity, a vessel of the war-gods three — "
+        "the Exile's ascension.")
+
+_MINOR_RE = re.compile(r"^minor(forge|grail|lantern|heart|moth|meniscate)"
+                       r"victory(withrisen)?$")
+
+
 def ending_lesson(ending_id: str) -> tuple[str, bool]:
-    """(post-mortem text, is_victory) for a recorded ending."""
-    lesson = ENDING_LESSONS.get(ending_id)
+    """(post-mortem text, is_victory) for a recorded ending. Losses come with
+    prevention; victories with a one-line recap of the road taken."""
     zh = lexicon.get_language() == "zh"
+    lesson = ENDING_LESSONS.get(ending_id)
     if lesson:
         cause, fix = (lesson[0], lesson[1]) if zh else (lesson[2], lesson[3])
         return (f"死因：{cause}  下局预防：{fix}" if zh
                 else f"Cause: {cause}  Next run: {fix}"), False
+    if ending_id in MARRIAGE_ENDINGS:
+        return (("与挚爱共度余生。放下奥秘、选择人间，也是一条完整的路。"
+                 "（路线：探索结识 → 谈话加深 → 恋人 → 情愫时节回应）" if zh else
+                 "A life shared with the one you love. Setting the Mysteries "
+                 "aside is a whole road of its own. (Route: explore to meet, "
+                 "talk to deepen, a lover, answer the Season of Ardours.)"), True)
+    m = _MINOR_RE.match(ending_id)
+    if m:
+        text = ("标准飞升达成。路线回顾：野心升到 6 级 → 主系秘传合计 36+ → 高级影响 + 仪式。" if zh else
+                "A standard ascension. The road: ambition to 6, 36+ prime lore, "
+                "a high influence and the rite.")
+        if m.group(2):
+            text += ("而且有复生者随行——完全形态的飞升。" if zh else
+                     " And with a Risen at your side — the fuller form.")
+        return text, True
+    if ending_id.startswith("obscurityvictory"):
+        tier = {"a": "宁静", "b": "安适", "c": "罕见的快乐"}.get(
+            ending_id.replace("obscurityvictory", "")[:1], "")
+        text = (f"隐姓埋名，换来{tier}的生活（流亡者线）。" if zh else
+                "Vanished into obscurity, and bought a quiet life (the Exile's road).")
+        if "foeslain" in ending_id:
+            text += ("而且仇敌已被手刃。" if zh else " And the foe lies slain.")
+        return text, True
+    note = VICTORY_NOTES.get(ending_id)
+    if note:
+        return (note[0] if zh else note[1]), True
     if "victory" in ending_id:
         return ("这局赢了——回看事件史，记住这条路。" if zh
                 else "A victory — walk the event history and remember the road."), True

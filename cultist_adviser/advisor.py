@@ -104,6 +104,22 @@ SEASON_PREP = {
     "seasonsickness": "sickness",
     "seasonsuspicion": "suspicion",
     "seasonambitions": "ambitions",
+    "seasonsilence": "silence",
+    "seasonserenities": "serenities",
+    "seasonardours": "ardours",
+}
+
+# The gentle seasons deserve a plan too: (zh, en) opportunity notes.
+SEASON_OPPORTUNITY = {
+    "silence": ("这段时间不会起疑心——产声名的事（绘画、远征、通灵）趁现在做。",
+                "No Suspicion stirs for a while — do the reputation-heavy work "
+                "(painting, expeditions, séances) now."),
+    "serenities": ("无事发生的一轮，还会送一张安逸。放心推进主线。",
+                   "A quiet turn that even gifts a Contentment. Push the main "
+                   "quest without fear."),
+    "ardours": ("与恋情相关：有交往对象会被索要心意，满足或婉拒；没有则平静度过。",
+                "Matters of the heart: a paramour will make demands — satisfy "
+                "or decline; without one it passes quietly."),
 }
 
 
@@ -399,6 +415,15 @@ def _season_forecast_rules(state: GameState, out: list[Suggestion]):
         return
     name = display_name(season)
     kind = SEASON_PREP.get(season)
+    if kind in SEASON_OPPORTUNITY:
+        zh_note, en_note = SEASON_OPPORTUNITY[kind]
+        out.append(Suggestion(
+            priority=15,
+            title=tr(f"时节预报：「{name}」约 {eta:.0f} 秒后到来",
+                     f"Season forecast: {name} in ~{eta:.0f}s"),
+            detail=tr(zh_note, en_note) if _spoiler >= SPOILER_GUIDE else "",
+        ))
+        return
     unready = False
     if kind == "despair":
         unready = _threat_count(state, "dread", "despair") > 0 \
@@ -433,6 +458,10 @@ def _season_forecast_rules(state: GameState, out: list[Suggestion]):
             prep = tr(f"欲望卡会被吸走考验升级，需献上{zh_t}——现在还没备齐，备不上会产生躁动。",
                       f"The season devours the desire card and demands {en_t} — none ready; "
                       "failing breeds Restlessness.")
+            if track != "power" and _spoiler >= SPOILER_GUIDE:
+                prep += tr("（囚徒来源：总部 + 谈话可监禁任何人，会产邪名；远征雇员也能抓。）",
+                           " (Prisoners: talk at your HQ to lock anyone up — it breeds "
+                           "Notoriety; expedition hirelings can be taken too.)")
         else:
             prep = ""
     else:
@@ -1290,12 +1319,18 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
     elif stage in "cde":
         level = "abcdef".index(stage) + 1
         zh_t, en_t = TRIBUTE[track]
+        detail = tr(f"时节会吸走欲望卡考验升级，需献上{zh_t}；备不齐会产生躁动。",
+                    f"The season devours the desire card and demands {en_t}; "
+                    "failing the test breeds Restlessness.")
+        if track != "power" and not any(has_aspect(s.entity_id, "prisoner")
+                                        for s in _all_stacks(state)):
+            detail += tr("囚徒来源：总部 + 谈话可监禁任何人（会产邪名），远征雇员也能抓。",
+                         " Prisoners: talk at your HQ to lock anyone up (breeds "
+                         "Notoriety); expedition hirelings can be taken too.")
         out.append(Suggestion(60,
             tr(f"野心已 {level} 级：等待野心时节升级",
                f"Ambition at {level}: wait for an Ambitions season"),
-            tr(f"时节会吸走欲望卡考验升级，需献上{zh_t}；备不齐会产生躁动。",
-               f"The season devours the desire card and demands {en_t}; "
-               "failing the test breeds Restlessness.")))
+            detail))
     elif stage == "f":
         total = _lore_total(state, lore)
         if total >= 36:
