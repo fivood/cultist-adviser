@@ -3,3 +3,7 @@ __pycache__/
 cultist_adviser/lexicon_cache.json
 cultist_adviser/knowledge_cache.json
 cultist_adviser/logs/
+build/
+dist/
+*.spec
+*.egg-info/

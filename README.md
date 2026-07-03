@@ -29,12 +29,20 @@ file, never the game window: no screen capture, no input simulation.
 
 ## 运行
 
-要求：Windows、Python 3.10+（仅标准库，含 tkinter）、已安装游戏本体
-（军师从游戏内容文件读取本地化名称与配方知识）。
+前提：Windows、已安装游戏本体（军师从游戏内容文件读取本地化名称与配方知识）。
+
+**方式一（无需 Python）**：从
+[Releases](https://github.com/fivood/cultist-adviser/releases) 下载
+`CultistAdviser.exe` 直接运行。
+
+**方式二（源码运行）**：Python 3.10+（仅标准库，含 tkinter）：
 
 ```
 python -m cultist_adviser
 ```
+
+自行打包 exe：`pip install pyinstaller` 后执行
+`python -m PyInstaller --onefile --noconsole --name CultistAdviser launcher.py`。
 
 路径自动探测不中时用环境变量指定：
 
