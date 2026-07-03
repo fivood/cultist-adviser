@@ -35,6 +35,32 @@ def test_recorder_keys_files_by_run_and_records_ending(tmp_path, monkeypatch):
         key=lambda n: (tmp_path / n).stat().st_mtime, reverse=True)
 
 
+def test_recorder_writes_recipe_counts_only_on_change(tmp_path, monkeypatch):
+    monkeypatch.setattr(rec_mod, "LOG_DIR", tmp_path)
+    r = rec_mod.SessionRecorder()
+    adv = Advice(character="a", legacy="aspirant")
+
+    def st(counts):
+        return type("S", (), {"created_at": "2026-07-01T00:00:00", "ending_id": "",
+                              "recipe_executions": counts})()
+
+    r.record(adv, st({"workintrojob": 1}))
+    r.record(adv, st({"workintrojob": 1}))   # unchanged — skip
+    r.record(adv, st({"workintrojob": 2}))   # changed — write again
+    snaps = rec_mod.load_session(r.path)
+    assert snaps[0]["recipes"] == {"workintrojob": 1}
+    assert "recipes" not in snaps[1]
+    assert snaps[2]["recipes"] == {"workintrojob": 2}
+
+
+def test_latest_recipe_counts_scans_backwards():
+    pytest.importorskip("tkinter")
+    from cultist_adviser.review import latest_recipe_counts
+    snaps = [{"recipes": {"a": 1}}, {}, {"recipes": {"a": 3, "b": 1}}, {}]
+    assert latest_recipe_counts(snaps) == {"a": 3, "b": 1}
+    assert latest_recipe_counts([{}]) == {}
+
+
 def test_extract_events_verb_start_and_ending():
     pytest.importorskip("tkinter")
     from cultist_adviser.review import extract_events

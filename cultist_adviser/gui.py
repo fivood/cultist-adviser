@@ -52,7 +52,13 @@ UI = {
     "obtain_title": ("获得方式：{}", "How to obtain: {}"),
     "obtain_none": ("没有已知配方直接产出这张卡。", "No known recipe produces this card."),
     "paused": ("已暂停？计时已冻结", "Paused? timers frozen"),
+    "sec_urgent": ("⚠ 紧急", "⚠ URGENT"),
+    "sec_advice": ("● 建议", "● Advice"),
+    "sec_info": ("○ 情报", "○ Info"),
 }
+
+# Suggestions below this priority are background information, not calls to act.
+INFO_PRIORITY = 40
 
 
 def _t(key: str) -> str:
@@ -106,11 +112,22 @@ class AdvisorApp:
         self.sug_frame = ttk.Labelframe(nb, padding=4)
         self.sug_text = tk.Text(self.sug_frame, wrap="word", height=10, state="disabled",
                                 font=("Microsoft YaHei UI", 10), relief="flat")
+        self.sug_text.tag_configure("header", foreground="#888888",
+                                    font=("Microsoft YaHei UI", 8, "bold"),
+                                    spacing1=6, spacing3=2)
         self.sug_text.tag_configure("urgent", foreground="#c62828",
+                                    background="#fdecea",
                                     font=("Microsoft YaHei UI", 10, "bold"))
+        self.sug_text.tag_configure("urgent_detail", foreground="#8c4a42",
+                                    background="#fdecea",
+                                    font=("Microsoft YaHei UI", 9))
         self.sug_text.tag_configure("title", font=("Microsoft YaHei UI", 10, "bold"))
         self.sug_text.tag_configure("detail", foreground="#666666",
                                     font=("Microsoft YaHei UI", 9))
+        self.sug_text.tag_configure("info", foreground="#999999",
+                                    font=("Microsoft YaHei UI", 9))
+        self.sug_text.tag_configure("info_detail", foreground="#aaaaaa",
+                                    font=("Microsoft YaHei UI", 8))
         self.sug_text.pack(fill="both", expand=True)
         nb.add(self.sug_frame, weight=3)
 
@@ -249,11 +266,22 @@ class AdvisorApp:
         self.sug_text.delete("1.0", "end")
         if not self.advice.suggestions:
             self.sug_text.insert("end", _t("none") + "\n", "detail")
-        for i, s in enumerate(self.advice.suggestions, 1):
-            tag = "urgent" if s.urgent else "title"
-            self.sug_text.insert("end", f"{i}. {s.title}\n", tag)
-            if s.detail:
-                self.sug_text.insert("end", f"    {s.detail}\n", "detail")
+        urgent = [s for s in self.advice.suggestions if s.urgent]
+        advice = [s for s in self.advice.suggestions
+                  if not s.urgent and s.priority >= INFO_PRIORITY]
+        info = [s for s in self.advice.suggestions
+                if not s.urgent and s.priority < INFO_PRIORITY]
+        for header, title_tag, detail_tag, items in (
+                ("sec_urgent", "urgent", "urgent_detail", urgent),
+                ("sec_advice", "title", "detail", advice),
+                ("sec_info", "info", "info_detail", info)):
+            if not items:
+                continue
+            self.sug_text.insert("end", _t(header) + "\n", "header")
+            for s in items:
+                self.sug_text.insert("end", f"{s.title}\n", title_tag)
+                if s.detail:
+                    self.sug_text.insert("end", f"    {s.detail}\n", detail_tag)
         self.sug_text.configure(state="disabled")
         self._redraw_timers(reschedule=False)
 

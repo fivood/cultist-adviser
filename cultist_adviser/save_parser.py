@@ -42,6 +42,8 @@ class GameState:
     draw_piles: dict[str, list[str]] = field(default_factory=dict)
     created_at: str = ""   # character DateTimeCreated — identifies one run
     ending_id: str = ""    # EndingTriggeredId, set once the run has ended
+    # RecipeExecutions: cumulative count of every recipe this character ran.
+    recipe_executions: dict[str, int] = field(default_factory=dict)
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -141,6 +143,8 @@ def parse_save(path: str) -> GameState:
         draw_piles=_parse_draw_piles(root),
         created_at=char.get("DateTimeCreated") or "",
         ending_id=char.get("EndingTriggeredId") or "",
+        recipe_executions={k: v for k, v in (char.get("RecipeExecutions") or {}).items()
+                           if not k.startswith("$") and isinstance(v, int)},
         raw=raw,
     )
 

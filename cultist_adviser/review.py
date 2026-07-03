@@ -38,10 +38,20 @@ UI = {
     "ending": ("🏁 本局结束：{}", "🏁 Run over: {}"),
     "ended_stat": (" · 结局：{}", " · ending: {}"),
     "legend": ("资金=蓝 恐惧=红 入迷=紫", "Funds=blue Dread=red Fascination=purple"),
+    "tab_events": ("事件史", "Events"),
+    "tab_stats": ("行为统计", "Actions"),
+    "col_recipe": ("做了什么", "What was done"),
+    "col_count": ("次数", "Times"),
+    "no_stats": ("该记录没有行为统计（旧版本记录或局刚开始）。",
+                 "No action stats in this recording (old file, or the run just began)."),
 }
 
 # The time verb restarts every 60s; logging each cycle would drown the history.
 UNLOGGED_VERBS = {"time", "time.exile"}
+
+# Engine housekeeping recipes to hide from the action-stats view. Everything
+# without a localized label is dropped anyway; "needs" (时间流逝) has one.
+STAT_NOISE = {"needs"}
 
 
 def _t(key: str) -> str:
@@ -116,6 +126,15 @@ def event_text(ev: dict) -> str:
     if kind == "ending":
         return _t("ending").format(display_name(ev["id"]))
     return _t(kind).format(n=ev["n"], name=display_name(ev["id"]))
+
+
+def latest_recipe_counts(snaps: list[dict]) -> dict[str, int]:
+    """Most recent cumulative RecipeExecutions in the recording (recorder only
+    writes the dict when it changes, so scan backwards)."""
+    for sn in reversed(snaps):
+        if sn.get("recipes"):
+            return sn["recipes"]
+    return {}
 
 
 def is_key_event(ev: dict) -> bool:
@@ -199,8 +218,11 @@ class ReviewWindow:
         self.canvas.pack(fill="x", padx=8, pady=6)
         self.canvas.bind("<Configure>", lambda e: self._redraw_chart())
 
-        frame = ttk.Frame(self.win)
-        frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        nb = ttk.Notebook(self.win)
+        nb.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        frame = ttk.Frame(nb)
+        nb.add(frame, text=_t("tab_events"))
         self.tree = ttk.Treeview(frame, columns=("time", "event"), show="headings")
         self.tree.heading("time", text=_t("time"))
         self.tree.heading("event", text=_t("event"))
@@ -212,6 +234,20 @@ class ReviewWindow:
         self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
+
+        stats_frame = ttk.Frame(nb)
+        nb.add(stats_frame, text=_t("tab_stats"))
+        self.stats_tree = ttk.Treeview(stats_frame, columns=("recipe", "count"),
+                                       show="headings")
+        self.stats_tree.heading("recipe", text=_t("col_recipe"))
+        self.stats_tree.heading("count", text=_t("col_count"))
+        self.stats_tree.column("recipe", width=380)
+        self.stats_tree.column("count", width=60, anchor="e", stretch=False)
+        stats_scroll = ttk.Scrollbar(stats_frame, orient="vertical",
+                                     command=self.stats_tree.yview)
+        self.stats_tree.configure(yscrollcommand=stats_scroll.set)
+        stats_scroll.pack(side="right", fill="y")
+        self.stats_tree.pack(side="left", fill="both", expand=True)
 
         self.snaps: list[dict] = []
         self.events: list[dict] = []
@@ -236,15 +272,34 @@ class ReviewWindow:
             self.events = []
             self.canvas.delete("all")
             self._render_events()
+            self._render_stats()
             return
         self.events = extract_events(self.snaps)
         self.stats_var.set(summarize(self.snaps, self.events))
         self._redraw_chart()
         self._render_events()
+        self._render_stats()
 
     def _redraw_chart(self):
         if self.snaps:
             draw_chart(self.canvas, self.snaps)
+
+    def _render_stats(self):
+        self.stats_tree.delete(*self.stats_tree.get_children())
+        recipes = latest_recipe_counts(self.snaps)
+        rows = []
+        for rid, count in recipes.items():
+            if rid in STAT_NOISE:
+                continue
+            name = lexicon.recipe_name(rid)
+            if name == rid:  # no localized label — engine housekeeping recipe
+                continue
+            rows.append((name, count))
+        if not rows:
+            self.stats_tree.insert("", "end", values=(_t("no_stats"), ""))
+            return
+        for name, count in sorted(rows, key=lambda kv: -kv[1]):
+            self.stats_tree.insert("", "end", values=(name, count))
 
     def _render_events(self):
         self.tree.delete(*self.tree.get_children())

@@ -21,12 +21,14 @@ class SessionRecorder:
     def __init__(self):
         self.path: Path | None = None
         self._run_key: str | None = None
+        self._last_recipes: dict | None = None
 
     def record(self, advice: Advice, state=None):
         created = getattr(state, "created_at", "") if state is not None else ""
         key = re.sub(r"\D", "", created)[:14]  # 2026-07-01T23:02:36… -> 20260701230236
         if self.path is None or key != self._run_key:
             self._run_key = key
+            self._last_recipes = None
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             if key:
                 who = re.sub(r"\W", "", advice.character or "")[:16]
@@ -46,6 +48,11 @@ class SessionRecorder:
         ending = getattr(state, "ending_id", "") if state is not None else ""
         if ending:
             snap["ending"] = ending
+        # Cumulative recipe counts: only write when they changed, to keep lines lean.
+        recipes = getattr(state, "recipe_executions", None) if state is not None else None
+        if recipes and recipes != self._last_recipes:
+            snap["recipes"] = recipes
+            self._last_recipes = dict(recipes)
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(snap, ensure_ascii=False) + "\n")
 
