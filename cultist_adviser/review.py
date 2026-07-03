@@ -49,6 +49,75 @@ UI = {
 # The time verb restarts every 60s; logging each cycle would drown the history.
 UNLOGGED_VERBS = {"time", "time.exile"}
 
+# Post-mortem lessons: ending id -> (zh cause, zh prevention, en cause, en prevention).
+# Turning "died again" into "learnt something" — the run is over, so no spoiler
+# gating applies here.
+ENDING_LESSONS = {
+    "despairending": (
+        "绝望吞噬——3 张恐惧被吸满，无人安慰。",
+        "常备「安逸」（入梦：恐惧+安逸可消）；恐惧攒到 2 张就要准备对策；穷途末路时入梦 + 1 资金买鸦片酊救急。",
+        "Despair devoured three Dread with no comfort in reach.",
+        "Keep Contentment handy (Dream: Dread + Contentment clears it); prepare "
+        "counters at two Dread; in extremis, Dream with 1 Funds for the opium."),
+    "visionsending": (
+        "辉光焚身——3 张入迷被吸满，理智燃尽。",
+        "备「恐惧」或「一瞬追忆」；入梦把入迷+恐惧换成更安全的一瞬追忆；健康早睡早起也能囤追忆。",
+        "Glory burned through three unchecked Fascination.",
+        "Hold Dread or a Fleeting Reminiscence; Dream Fascination with Dread into "
+        "the safer Reminiscence; early nights with Health stockpile them."),
+    "deathofthebody": (
+        "肉体消亡——最后一点健康被夺走。",
+        "资金别断（断粮直接扣健康）；疾病结算时桌面必须留有健康或疲惫可取；病痛出现立刻入梦 + 资金/活力治疗。",
+        "The body failed — the last Health was taken.",
+        "Never run out of Funds (starvation eats Health); keep a Health or Fatigue "
+        "free on the table when Sickness resolves; treat Afflictions at once."),
+    "arrest": (
+        "隔槛望日——确凿证据把你送上了法庭。",
+        "邪名/秘氛别攒着过疑心时节；证据一出现就派蛾系手下销毁；常备一张「当局欠下的人情」保命。",
+        "Bars across the sun — damning evidence made the trial.",
+        "Never carry reputation into a Suspicion season; destroy evidence with a "
+        "Moth follower the moment it appears; keep a Favour in reserve."),
+    "wintersacrifice": (
+        "静静离去——波比想要的灵魂没有给她。",
+        "波比的倒计时内投入一名手下满足她；提前养一个可以割舍的信徒。",
+        "Going quietly — Poppy's price went unpaid.",
+        "Feed her a follower before the countdown ends; keep an expendable "
+        "believer for exactly this day."),
+    "longnightmareending": (
+        "梦魇撕碎——与长生者的梦境对决中败北。",
+        "梦境对决会吸走理性/激情，别在属性耗尽时应战；先用手下侦查、拖延他的谋划。",
+        "Nightmares tore you apart in the dream duel with the Long.",
+        "The duel devours Reason/Passion — never fight it drained; spy on and "
+        "delay their schemes with followers first."),
+    "rivalascension": (
+        "对手先行——长生者候补抢先完成了飞升。",
+        "对手出现就要处理：刃系手下暗杀（等级 10+ 必成），或全力加速自己的野心进度。",
+        "The rival ascended first.",
+        "Deal with rivals when they surface: an Edge-10 follower's knife is "
+        "certain, or simply outpace them."),
+    "foecaughtup": (
+        "仇敌追上——痕迹引来了最后的清算。",
+        "痕迹是流亡者的命门：控制积累，热度高了立刻换城市。",
+        "The foe caught up — the trace led them straight to you.",
+        "Trace is the Exile's lifeline: keep it low, and move city the moment "
+        "the heat rises."),
+}
+
+
+def ending_lesson(ending_id: str) -> tuple[str, bool]:
+    """(post-mortem text, is_victory) for a recorded ending."""
+    lesson = ENDING_LESSONS.get(ending_id)
+    zh = lexicon.get_language() == "zh"
+    if lesson:
+        cause, fix = (lesson[0], lesson[1]) if zh else (lesson[2], lesson[3])
+        return (f"死因：{cause}  下局预防：{fix}" if zh
+                else f"Cause: {cause}  Next run: {fix}"), False
+    if "victory" in ending_id:
+        return ("这局赢了——回看事件史，记住这条路。" if zh
+                else "A victory — walk the event history and remember the road."), True
+    return ("结局已至。回看事件史，看看最后一段发生了什么。" if zh
+            else "The run has ended. Walk the event history to see the final stretch."), False
+
 # Engine housekeeping recipes to hide from the action-stats view. Everything
 # without a localized label is dropped anyway; "needs" (时间流逝) has one.
 STAT_NOISE = {"needs"}
@@ -213,6 +282,12 @@ class ReviewWindow:
 
         self.stats_var = tk.StringVar()
         ttk.Label(self.win, textvariable=self.stats_var, padding=(8, 0)).pack(fill="x")
+        self.analysis_var = tk.StringVar()
+        self.analysis_label = tk.Label(self.win, textvariable=self.analysis_var,
+                                       justify="left", anchor="w", wraplength=496,
+                                       padx=8, fg="#8c1f1f",
+                                       font=("Microsoft YaHei UI", 9))
+        self.analysis_label.pack(fill="x")
 
         self.canvas = tk.Canvas(self.win, height=150, bg="white", highlightthickness=0)
         self.canvas.pack(fill="x", padx=8, pady=6)
@@ -269,6 +344,7 @@ class ReviewWindow:
         self.snaps = load_session(path) if path and path.exists() else []
         if not self.snaps:
             self.stats_var.set(_t("no_data"))
+            self.analysis_var.set("")
             self.events = []
             self.canvas.delete("all")
             self._render_events()
@@ -276,6 +352,14 @@ class ReviewWindow:
             return
         self.events = extract_events(self.snaps)
         self.stats_var.set(summarize(self.snaps, self.events))
+        ending = next((sn["ending"] for sn in reversed(self.snaps)
+                       if sn.get("ending")), "")
+        if ending:
+            text, is_win = ending_lesson(ending)
+            self.analysis_var.set(("🏆 " if is_win else "💀 ") + text)
+            self.analysis_label.configure(fg="#2e7d32" if is_win else "#8c1f1f")
+        else:
+            self.analysis_var.set("")
         self._redraw_chart()
         self._render_events()
         self._render_stats()

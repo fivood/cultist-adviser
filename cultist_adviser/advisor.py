@@ -745,8 +745,10 @@ def _best_idle_use(state: GameState, verb_id: str):
 
 
 def _idle_verb_rules(state: GameState, out: list[Suggestion]):
+    doom_verbs = {v for v, *_ in DOOM_SITUATIONS} | set(DANGER_VERBS)
     idle = [s for s in find_situations(state)
-            if s.time_remaining <= 0 and s.verb_id != "time"]
+            if s.time_remaining <= 0 and s.verb_id != "time"
+            and s.verb_id not in doom_verbs]
     for s in idle:
         best = _best_idle_use(state, s.verb_id)
         name = display_name(s.verb_id)
@@ -1226,6 +1228,20 @@ def _cult_rules(state: GameState, out: list[Suggestion]):
             tr("把熟人和一份秘传放入「交谈」即可解锁建团。教团的系别决定仪式与手下方向，灯之教派对新手最友好。",
                "Talk with an acquaintance plus a lore fragment to unlock founding. The lore's "
                "aspect sets your cult's leaning — Lantern is the most forgiving choice.")))
+    elif has_acq:
+        out.append(Suggestion(58,
+            tr("建团还差：一份秘传", "Founding a cult still needs: a lore fragment"),
+            tr("熟人已经有了。秘传碎片从读书、入梦或冥想获得——任意一系都能开团，"
+               "凑齐后把两者一起放入「交谈」。",
+               "You have the acquaintance. Lore fragments come from books, dreams or "
+               "meditation — any aspect founds a cult. Talk with both together.")))
+    elif has_lore:
+        out.append(Suggestion(58,
+            tr("建团还差：一位熟人", "Founding a cult still needs: an acquaintance"),
+            tr("秘传已经有了。用「探索」在城市里结识熟人，或等剧情送上门；"
+               "凑齐后把两者一起放入「交谈」。",
+               "You have the lore. Explore the city to meet an acquaintance, or wait "
+               "for the story to deliver one. Talk with both together.")))
 
 
 def _ascension_rules(state: GameState, out: list[Suggestion]):
@@ -1281,11 +1297,19 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
                f"The season devours the desire card and demands {en_t}; "
                "failing the test breeds Restlessness.")))
     elif stage == "f":
+        total = _lore_total(state, lore)
+        if total >= 36:
+            lore_line = tr(f"主系秘传合计 {total}/36 ✔ 已达标——不必再攒，别浪费行动。",
+                           f"Prime lore totals {total}/36 ✔ — enough. Stop farming; "
+                           "spend your verbs elsewhere.")
+        else:
+            lore_line = tr(f"主系秘传合计 {total}/36，还差 {36 - total}。",
+                           f"Prime lore totals {total}/36 — {36 - total} short.")
         out.append(Suggestion(70,
-            tr("欲望已达 6 级——终局在望", "Desire at 6 — the endgame is in sight"),
-            tr("集齐主系秘传（合计 36+）、准备高级影响与仪式即可飞升；先见者的援手能更进一步。",
-               "Amass 36+ total in your prime lore, ready a high influence and the rite, "
-               "and ascend; a Know-hand ally raises the victory tier.")))
+            tr("欲望已达 6 级——终局清单", "Desire at 6 — the endgame checklist"),
+            lore_line + tr("另需高级影响与对应仪式；先见者的援手能提高胜利档次。",
+                           " You also need a high influence and the matching rite; "
+                           "a Know-hand ally raises the victory tier.")))
 
 
 def _mansus_expedition_rules(state: GameState, out: list[Suggestion]):
@@ -1343,6 +1367,52 @@ def _vault_battle_plan(state: GameState, vault: str) -> str:
     return sep.join(lines) + tr("。", ". ")
 
 
+def _lore_total(state: GameState, aspect: str) -> int:
+    """Sum of lore levels held for one aspect (victory wants 36+ in the prime)."""
+    return sum(lvl * n for lvl, n in _fragment_counts(state, aspect).items())
+
+
+def _stage_banner(state: GameState, out: list[Suggestion]):
+    """One persistent line naming the current arc of the run, so nobody has to
+    alt-tab to a wiki just to remember what the main quest is. The opening
+    banner covers the basic-cards phase; this takes over afterwards."""
+    if _is_opening(state):
+        return
+    ids = {s.entity_id for s in _all_stacks(state)}
+    pos = _ascension_position(state)
+    if not any(e.startswith("cult") for e in ids):
+        zh, en = "建立教团", "found your cult"
+        d_zh = "主线是凑齐熟人 + 秘传开团；同时稳住收入，别让声名失控。"
+        d_en = ("The main quest: an acquaintance plus lore founds the cult. "
+                "Keep the income steady and the reputation quiet meanwhile.")
+    elif pos is None or pos[1] == "a":
+        zh, en = "深入秘传，确立野心", "go deeper; commit your ambition"
+        d_zh = "读书、入梦攒秘传，把欲望卡升到奉献（野心 2 级）。"
+        d_en = ("Gather lore from books and dreams, and raise the desire "
+                "card to Dedication (ambition 2).")
+    elif pos[0] == "change":
+        zh, en = "推进蜕变", "walk the road of Change"
+        d_zh = "在夜总会跳舞换取课程，一步步完成蜕变。"
+        d_en = "Dance at the club for the surrendering lessons, one by one."
+    elif pos[1] == "b":
+        zh, en = "叩响牡鹿之门", "knock on the Stag Door"
+        d_zh = "主线是漫宿答谜取得道路，并凑出 6 级主系秘传——两样齐了野心就能到 3 级。"
+        d_en = ("Answer the riddle in the Mansus for the Way and assemble a "
+                "level-6 prime lore — both together unlock ambition 3.")
+    elif pos[1] in "cde":
+        zh, en = "在野心时节中晋升", "rise through the Ambition seasons"
+        d_zh = "备好贡品等野心时节晋升；间隙积攒主系秘传和手下。"
+        d_en = ("Keep the tribute ready for each Ambitions season; between "
+                "them, stack prime lore and followers.")
+    else:  # stage f
+        zh, en = "终局：飞升", "the endgame: ascend"
+        d_zh = "按清单备齐秘传、影响与仪式，然后完成飞升。"
+        d_en = "Complete the checklist — lore, influence, rite — then ascend."
+    out.append(Suggestion(54,
+        tr(f"当前阶段：{zh}", f"Current arc: {en}"),
+        tr(d_zh, d_en), spoiler=SPOILER_GUIDE))
+
+
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         return  # the Exile has none of these systems
@@ -1351,6 +1421,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
+    _stage_banner(state, out)         # tags itself: guidance 1
 
 
 def _ghoul_rules(state: GameState, out: list[Suggestion]):

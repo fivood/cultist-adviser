@@ -171,6 +171,39 @@ def test_cult_founding_ready_and_suppressed():
     assert not by_priority(state(base + [card("cultlantern_1")]), 75)
 
 
+def test_cult_missing_piece_hints():
+    acq_only = state([card("acquaintance"), card("skillhealtha"), verb("time", 55)])
+    assert by_priority(acq_only, 58), "missing-lore hint"
+    lore_only = state([card("fragmentlantern"), card("skillhealtha"), verb("time", 55)])
+    assert by_priority(lore_only, 58), "missing-acquaintance hint"
+    both = state([card("acquaintance"), card("fragmentlantern"),
+                  card("skillhealtha"), verb("time", 55)])
+    assert not by_priority(both, 58) and by_priority(both, 75)
+
+
+def test_stage_banner_follows_progress():
+    # Past the opening (skill present), no cult -> "found your cult" arc.
+    no_cult = state([card("skillhealtha"), verb("time", 55)])
+    assert by_priority(no_cult, 54)
+    # Opening phase: covered by the opening banner instead.
+    fresh = state([card("introjob"), verb("time", 55)])
+    assert not by_priority(fresh, 54) and by_priority(fresh, 55)
+    # Keeper level hides the banner (it's guidance).
+    subs = advise(no_cult, spoiler=0).suggestions
+    assert not any(s.priority == 54 for s in subs)
+
+
+def test_endgame_checklist_counts_lore():
+    common = [card("skillhealtha"), card("cultlantern_1"), verb("time", 55)]
+    short = state(common + [card("ascensionenlightenmentf"), card("fragmentlanternc")])
+    alerts = by_priority(short, 70)
+    assert alerts and "6/36" in alerts[0].detail
+    enough = state(common + [card("ascensionenlightenmentf"),
+                             card("fragmentlanterng", 2), card("fragmentlanterne")])
+    alerts = by_priority(enough, 70)
+    assert alerts and "38/36" in alerts[0].detail
+
+
 def test_ascension_b_missing_vs_ready():
     common = [card("skillhealtha"), card("cultlantern_1"), verb("time", 55)]
     missing = state(common + [card("ascensionenlightenmentb"), card("fragmentlantern")])

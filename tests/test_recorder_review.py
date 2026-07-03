@@ -61,6 +61,24 @@ def test_latest_recipe_counts_scans_backwards():
     assert latest_recipe_counts([{}]) == {}
 
 
+def test_ending_lessons():
+    pytest.importorskip("tkinter")
+    from cultist_adviser.review import ending_lesson
+    from cultist_adviser import lexicon
+    lexicon.set_language("en")
+    try:
+        text, win = ending_lesson("despairending")
+        assert not win and "Next run" in text
+        text, win = ending_lesson("arrest")
+        assert not win and "Favour" in text
+        text, win = ending_lesson("workvictory")
+        assert win
+        text, win = ending_lesson("somemoddedending")
+        assert not win and text  # generic fallback still says something
+    finally:
+        lexicon.set_language("zh")
+
+
 def test_extract_events_verb_start_and_ending():
     pytest.importorskip("tkinter")
     from cultist_adviser.review import extract_events
