@@ -59,6 +59,10 @@ DOOM_SITUATIONS = [
      "长生者正在袭击：视其策略可能抢劫资金、致伤、绑架手下或摧毁健康。收好资源，手下可投入防御。",
      "The Long is attacking: depending on their strategy they rob Funds, injure, abduct a "
      "follower or destroy Health. Guard your resources; a follower can defend."),
+    ("time.exile", ("wounds",), 190,
+     "伤势正在夺命！立刻治疗：「舍弃」= 伤势 + 活力（干净）或 + 被窃的十年（会留下痕迹）。",
+     "Your wounds are killing you! Heal now: Relinquish = wound + Vitality (clean) "
+     "or + a stolen decade (leaves a Trace)."),
 ]
 
 # Verbs the GUI should paint red while running.
@@ -1515,6 +1519,54 @@ def _stage_banner(state: GameState, out: list[Suggestion]):
         tr(d_zh, d_en), spoiler=SPOILER_GUIDE))
 
 
+def _npc_tendency(entity_id: str) -> str:
+    """An acquaintance's fixed lore inclination, read off their believer form
+    (auclair_a -> auclair_b carries winter). Empty when unknowable."""
+    if not entity_id.endswith("_a"):
+        return ""
+    believer = element_aspects(entity_id[:-2] + "_b")
+    return next((a for a in ASPECT_ZH if believer.get(a)), "")
+
+
+def _recruit_rules(state: GameState, out: list[Suggestion]):
+    """Recruitment planning: name each tabletop acquaintance's inclination,
+    and point out roster gaps for the roles that matter (Moth destroys
+    evidence, Edge fights hunters and rivals)."""
+    acqs = [(s.entity_id, _npc_tendency(s.entity_id))
+            for s in _tabletop_stacks(state)
+            if has_aspect(s.entity_id, "acquaintance")]
+    named = [(e, t) for e, t in acqs if t]
+    if named:
+        listing = "、".join(f"{display_name(e)}＝{ASPECT_ZH[t]}" for e, t in named) \
+            if get_language() == "zh" else \
+            ", ".join(f"{display_name(e)} = {t}" for e, t in named)
+        out.append(Suggestion(56,
+            tr("在场熟人的系别倾向", "Tabletop acquaintances and their leanings"),
+            listing + tr("。升为信徒后即是该系人手。",
+                         ". Once believers, that is the aspect they serve with.")))
+    if not any(e.startswith("cult") for e in
+               (s.entity_id for s in _all_stacks(state))):
+        return
+    for aspect, zh_role, en_role in (
+            ("moth", "销毁证据的主力", "your evidence-destroyer"),
+            ("edge", "对付猎人与对手的刀", "the knife for hunters and rivals")):
+        if _best_follower_aspect(state, aspect) > 0:
+            continue
+        candidates = [display_name(e) for e, t in named if t == aspect]
+        if candidates:
+            names = "、".join(candidates) if get_language() == "zh" \
+                else ", ".join(candidates)
+            hint = tr(f"在场人选：{names}——引荐入教吧。",
+                      f"On the table right now: {names} — bring them in.")
+        else:
+            hint = tr("留意结识这一系倾向的熟人（探索酒馆等场所）。",
+                      "Watch for acquaintances of that leaning while exploring.")
+        out.append(Suggestion(57,
+            tr(f"教团缺{ASPECT_ZH[aspect]}系手下（{zh_role}）",
+               f"The cult lacks a {aspect} follower ({en_role})"),
+            hint))
+
+
 def _long_rules(state: GameState, out: list[Suggestion]):
     """A Long is scheming (the 'long' verb runs between attacks) — lay out the
     proactive counterplay from long_recipes_attacks.json: spy, delay, unmask."""
@@ -1533,15 +1585,54 @@ def _long_rules(state: GameState, out: list[Suggestion]):
            "path to a final confrontation.")))
 
 
+def _exile_rules(state: GameState, out: list[Suggestion]):
+    """The Exile's own survival loop (DLC_EXILE recipes): wounds kill, the
+    Reckoners' servants strip your obscurity, traces draw the hunt."""
+    wounds = _qty_anywhere(state, "damage.exile")
+    if wounds:
+        out.append(Suggestion(
+            priority=135,
+            title=tr(f"{wounds} 处伤势在身", f"{wounds} wound(s) taken"),
+            detail=tr("「舍弃」= 伤势 + 活力治疗（干净）；+ 被窃的十年也行但会留下痕迹。伤势攒多必死。",
+                      "Relinquish = wound + Vitality (clean); a stolen decade works too "
+                      "but leaves a Trace. Enough wounds kill."),
+            urgent=wounds >= 2,
+        ))
+    servants = [s.entity_id for s in _tabletop_stacks(state)
+                if s.entity_id.startswith("rkx.")]
+    if servants:
+        out.append(Suggestion(
+            priority=130,
+            title=tr(f"仇敌的爪牙在场（{display_name(servants[0])}）",
+                     f"The foe's servant is here ({display_name(servants[0])})"),
+            detail=tr("他们的袭击会剥掉你的隐蔽度、抢走资产。保持隐蔽、反击或尽快换城市。",
+                      "Their attacks strip your obscurity and seize assets. Stay hidden, "
+                      "fight back, or move city soon."),
+            urgent=True,
+        ))
+    trace = _qty_anywhere(state, "trace")
+    if trace >= 5:
+        out.append(Suggestion(
+            priority=92,
+            title=tr(f"痕迹已积累 {trace} 张", f"Trace has piled up: {trace}"),
+            detail=tr("痕迹引来仇敌的注意。换城市能甩掉旧痕迹，隐蔽度是你的护身符。",
+                      "Trace draws the foe's eye. Moving city sheds the old ones; "
+                      "obscurity is your armour."),
+            spoiler=SPOILER_GUIDE,
+        ))
+
+
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
-        return  # the Exile has none of these systems
+        _exile_rules(state, out)  # the Exile plays by its own rules
+        return
     _rival_rules(state, out)          # tags itself: doom 0, early warning 1
     _tagged(_cult_rules, state, out, SPOILER_GUIDE)
     _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
     _tagged(_long_rules, state, out, SPOILER_GUIDE)
+    _tagged(_recruit_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
 

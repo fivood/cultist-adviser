@@ -124,8 +124,15 @@ def _parse_draw_piles(root: dict) -> dict[str, list[str]]:
 
 
 def parse_save(path: str) -> GameState:
-    with open(path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
+    with open(path, "rb") as f:
+        return parse_save_bytes(f.read())
+
+
+def parse_save_bytes(data: bytes) -> GameState:
+    """Parse an in-memory copy of the save. Reading the bytes ourselves (rather
+    than trusting stat().st_mtime) sidesteps Windows' lazy directory-entry
+    timestamp, which can hide fresh writes until the folder is touched."""
+    raw = json.loads(data.decode("utf-8-sig"))
 
     char = (raw.get("CharacterCreationCommands") or [{}])[0]
     root = raw.get("RootPopulationCommand", {})

@@ -64,6 +64,13 @@ def aspect_table(monkeypatch):
         "fakefragment": {"lore": 1},
         "fakeinfluence": {"influence": 1},
         "fakeway": {"way": 1},
+        "porter_a": {"acquaintance": 1},
+        "porter_b": {"follower": 1, "moth": 2},
+        "victor_a": {"acquaintance": 1},
+        "victor_b": {"follower": 1, "edge": 3},
+        "damage.exile": {},
+        "rkx.scout": {},
+        "trace": {},
     })
     monkeypatch.setattr(knowledge, "_el_aspects", table)
     monkeypatch.setattr(knowledge, "_vaults",
@@ -291,10 +298,34 @@ def test_long_scheming_counterplay():
     assert not by_priority(dueling, 88), "confrontation is the doom rule's job"
 
 
-def test_progression_skipped_for_exile():
+def test_recruit_tendency_and_gaps():
+    # Two acquaintances on the table, cult founded, no moth/edge follower yet.
+    st = state([card("porter_a"), card("victor_a"), card("cultlantern_1"),
+                card("skillhealtha"), verb("time", 55)])
+    assert by_priority(st, 56), "tendency listing"
+    gaps = by_priority(st, 57)
+    assert gaps, "roster-gap hints for moth + edge"
+    # Before founding a cult, no gap nagging.
+    pre = state([card("porter_a"), card("skillhealtha"), verb("time", 55)])
+    assert by_priority(pre, 56) and not by_priority(pre, 57)
+
+
+def test_exile_survival_rules():
+    wounded = state([card("damage.exile", 2), card("skillhealtha"),
+                     verb("time.exile", 55)], legacy="exile")
+    alerts = by_priority(wounded, 135)
+    assert alerts and alerts[0].urgent
+    servant = state([card("rkx.scout"), verb("time.exile", 55)], legacy="exile")
+    assert by_priority(servant, 130)
+    traced = state([card("trace", 6), verb("time.exile", 55)], legacy="exile")
+    assert by_priority(traced, 92)
+
+
+def test_generic_progression_skipped_for_exile():
+    # The cult/ascension machinery must not fire for the Exile.
     st = state([card("acquaintance"), card("fragmentlantern"),
                 verb("time.exile", 55)], legacy="exile")
-    assert not by_priority(st, 75)
+    assert not by_priority(st, 75) and not by_priority(st, 54)
 
 
 # -------------------------------------------------------------- dispatch ---

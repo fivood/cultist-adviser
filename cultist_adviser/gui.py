@@ -6,12 +6,13 @@ Card/verb names come from the game's own localization (中文/English toggle).
 """
 import json
 import time
+import zlib
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
 from .config import SAVE_PATH, SAVE_POLL_INTERVAL, PROJECT_DIR
-from .save_parser import parse_save
+from .save_parser import parse_save_bytes
 from . import lexicon
 from .advisor import (advise, Advice, ALERT_VERBS, SPOILER_GUIDE, is_cooldown,
                       GOOD_RIDDANCE)
@@ -90,6 +91,7 @@ UI = {
     "sec_info": ("○ 情报", "○ Info"),
     "filter": ("筛选", "Filter"),
     "timed_only": ("只看倒计时", "Timed only"),
+    "sound": ("提醒音", "Sound"),  # noqa — beep on new urgent alerts
     "spoiler_names": (("守密人", "顾问", "全知"), ("Keeper", "Adviser", "Omniscient")),
     "grp_threats": ("威胁", "Threats"),
     "grp_core": ("资源与属性", "Resources & abilities"),
@@ -155,7 +157,7 @@ class AdvisorApp:
         self.root = root
         self.state = None
         self.advice: Advice | None = None
-        self.save_mtime = 0.0
+        self.save_sig: tuple | None = None
         self.parsed_at = 0.0
         self.parsed_at_str = ""
         self.save_deadline = 0.0  # next guaranteed save, seconds after parsed_at
@@ -178,6 +180,11 @@ class AdvisorApp:
             top, variable=self.topmost_var,
             command=lambda: root.attributes("-topmost", self.topmost_var.get()))
         self.topmost_btn.pack(side="right")
+        self.sound_var = tk.BooleanVar(value=bool(self.settings.get("sound", True)))
+        self.sound_btn = ttk.Checkbutton(top, variable=self.sound_var,
+                                         command=self._save_sound_setting)
+        self.sound_btn.pack(side="right")
+        self._known_urgent: set[str] = set()
         self.review_btn = ttk.Button(top, command=self._open_review)
         self.review_btn.pack(side="right", padx=(0, 8))
         self.lang_var = tk.StringVar(
@@ -280,6 +287,24 @@ class AdvisorApp:
             self._set_status()
             self._render()
 
+    def _save_sound_setting(self):
+        self.settings["sound"] = self.sound_var.get()
+        _save_settings(self.settings)
+
+    def _alert_sound(self):
+        """One system beep when a NEW urgent alert appears (never repeats for
+        alerts already on screen)."""
+        current = {s.title for s in self.advice.suggestions if s.urgent} \
+            if self.advice else set()
+        fresh = current - self._known_urgent
+        self._known_urgent = current
+        if fresh and self.sound_var.get():
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            except Exception:
+                pass  # non-Windows or muted system — never break the advisor
+
     def _open_review(self):
         ReviewWindow(self.root, self.recorder.path)
 
@@ -321,6 +346,7 @@ class AdvisorApp:
         self.review_btn.configure(text=_t("review"))
         self.filter_label.configure(text=_t("filter"))
         self.timed_btn.configure(text=_t("timed_only"))
+        self.sound_btn.configure(text=_t("sound"))
         names = _t("spoiler_names")
         self.spoiler_box.configure(values=names)
         self.spoiler_var.set(names[self.spoiler_level])
@@ -345,17 +371,23 @@ class AdvisorApp:
     # --- data ---
 
     def _poll(self):
+        # Read the bytes and signature-compare instead of trusting st_mtime:
+        # on Windows the directory timestamp can stay stale until the folder is
+        # touched, which is why updates used to need an alt-tab to appear.
         try:
-            mtime = Path(SAVE_PATH).stat().st_mtime
-        except FileNotFoundError:
-            self.status_var.set(_t("no_save") + str(SAVE_PATH))
+            data = Path(SAVE_PATH).read_bytes()
+        except (FileNotFoundError, PermissionError):
+            # PermissionError = caught mid-write; retry on the next tick.
+            if not Path(SAVE_PATH).exists():
+                self.status_var.set(_t("no_save") + str(SAVE_PATH))
             self.root.after(POLL_MS, self._poll)
             return
-        if mtime != self.save_mtime:
-            self.save_mtime = mtime
+        sig = (len(data), zlib.crc32(data))
+        if sig != self.save_sig:
             try:
-                self.state = parse_save(str(SAVE_PATH))
+                self.state = parse_save_bytes(data)
                 self.advice = advise(self.state, self.spoiler_level)
+                self.save_sig = sig  # commit only after a clean parse
                 self.parsed_at = time.time()
                 self.parsed_at_str = time.strftime("%H:%M:%S")
                 running = [v.time_remaining for v in self.advice.verbs
@@ -368,8 +400,10 @@ class AdvisorApp:
                     pass  # recording must never break the advisor
                 self._set_status()
                 self._render()
-            except Exception as e:
-                self.status_var.set(_t("parse_fail") + str(e))
+                self._alert_sound()
+            except Exception:
+                # A truncated read mid-save; leave save_sig so we retry next tick.
+                pass
         self.root.after(POLL_MS, self._poll)
 
     def _likely_paused(self) -> bool:
