@@ -16,6 +16,7 @@ from .save_parser import GameState, ElementStack, Situation, stack_quantity, fin
 from .lexicon import display_name, recipe_name, situation_name, tr, get_language
 from .knowledge import (obtain_hint, has_aspect, element_aspects,
                         vault_obstacles, obstacle_counters)
+from . import achievements as ach
 
 TABLETOP = "~/tabletop"
 
@@ -1622,6 +1623,44 @@ def _exile_rules(state: GameState, out: list[Suggestion]):
         ))
 
 
+def _achievement_rules(state: GameState, out: list[Suggestion]):
+    """Nudge toward achievements the run is already positioned to earn."""
+    if _spoiler < SPOILER_GUIDE:
+        return  # keeper-mode: metagame nudges are exactly the kind of push
+                # that steers roleplay decisions, so hide them.
+    try:
+        unlocks = set(ach.parse_unlocks())
+    except Exception:
+        return
+    if not unlocks and not ach.UNLOCK_PATH.exists():
+        return  # no local record — probably GOG offline or fresh install.
+    ids = {s.entity_id for s in _all_stacks(state)}
+    tips: list[str] = []
+    for aspect, aid in ach.CULT_ASPECT_TO_ACH.items():
+        if f"cult{aspect}_1" in ids and aid not in unlocks:
+            tips.append(ach.definitions().get(aid, {}).get("label", aid))
+    for way, aid in ach.MANSUS_WAY_TO_ACH.items():
+        if way in ids and aid not in unlocks:
+            tips.append(ach.definitions().get(aid, {}).get("label", aid))
+    for eid in ids:
+        if eid.endswith("_d") and has_aspect(eid, "exalted"):
+            for asp, aid in ach.PROMOTED_ASPECT_TO_ACH.items():
+                if has_aspect(eid, asp) and aid not in unlocks:
+                    tips.append(ach.definitions().get(aid, {}).get("label", aid))
+    summ = "a_summon_generic"
+    if summ not in unlocks and any(e.startswith("spirit_") for e in ids):
+        tips.append(ach.definitions().get(summ, {}).get("label", summ))
+    if tips:
+        listing = "、".join(tips) if get_language() == "zh" else "; ".join(tips)
+        out.append(Suggestion(11,
+            tr(f"这局可获成就：{listing}",
+               f"Achievements within reach this run: {listing}"),
+            tr("你的存档里这些成就还没解锁——继续现在的路线就能拿到。",
+               "Your local record has these still locked — the run is already "
+               "on track to earn them."),
+            spoiler=SPOILER_GUIDE))
+
+
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         _exile_rules(state, out)  # the Exile plays by its own rules
@@ -1635,6 +1674,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_recruit_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
+    _achievement_rules(state, out)    # tags itself: guidance 1
 
 
 def _ghoul_rules(state: GameState, out: list[Suggestion]):

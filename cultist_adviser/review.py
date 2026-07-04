@@ -14,6 +14,7 @@ from . import lexicon
 from .lexicon import display_name, tr
 from .advisor import DANGER_VERBS
 from .recorder import list_sessions, load_session
+from . import achievements as ach
 
 # Cards whose gains/losses matter for the default "key events" view.
 KEY_CARDS = {"funds", "health", "reason", "passion", "dread", "fascination",
@@ -41,6 +42,18 @@ UI = {
     "legend": ("资金=蓝 恐惧=红 入迷=紫", "Funds=blue Dread=red Fascination=purple"),
     "tab_events": ("事件史", "Events"),
     "tab_stats": ("行为统计", "Actions"),
+    "tab_ach": ("成就", "Achievements"),
+    "ach_progress": ("成就进度：{}/{} 已解锁", "Achievements: {}/{} unlocked"),
+    "ach_none_missing": ("恭喜——所有成就已收集齐全。",
+                         "Congratulations — every achievement is unlocked."),
+    "ach_no_file": ("找不到成就记录文件（GOG 离线版可能不写入此文件）。",
+                    "No local achievements file (GOG offline builds may not "
+                    "write one)."),
+    "ach_kinds": {"ending": ("结局", "Endings"),
+                  "cult": ("教团", "Cults"),
+                  "mansus": ("漫宿之门", "Mansus doors"),
+                  "promoted": ("提升门徒至升华", "Exalted disciples"),
+                  "summon": ("召唤", "Summoning")},
     "col_recipe": ("做了什么", "What was done"),
     "col_count": ("次数", "Times"),
     "no_stats": ("该记录没有行为统计（旧版本记录或局刚开始）。",
@@ -412,6 +425,19 @@ class ReviewWindow:
         stats_scroll.pack(side="right", fill="y")
         self.stats_tree.pack(side="left", fill="both", expand=True)
 
+        ach_frame = ttk.Frame(nb)
+        nb.add(ach_frame, text=_t("tab_ach"))
+        self.ach_summary = ttk.Label(ach_frame, padding=(4, 4))
+        self.ach_summary.pack(fill="x")
+        self.ach_tree = ttk.Treeview(ach_frame, show="tree", selectmode="browse")
+        self.ach_tree.tag_configure("group",
+                                    font=("Microsoft YaHei UI", 9, "bold"))
+        ach_scroll = ttk.Scrollbar(ach_frame, orient="vertical",
+                                   command=self.ach_tree.yview)
+        self.ach_tree.configure(yscrollcommand=ach_scroll.set)
+        ach_scroll.pack(side="right", fill="y")
+        self.ach_tree.pack(side="left", fill="both", expand=True)
+
         self.snaps: list[dict] = []
         self.events: list[dict] = []
         if session and session.exists():
@@ -437,9 +463,11 @@ class ReviewWindow:
             self.canvas.delete("all")
             self._render_events()
             self._render_stats()
+            self._render_achievements()
             return
         self.events = extract_events(self.snaps)
         self.stats_var.set(summarize(self.snaps, self.events))
+        self._render_achievements()
         ending = next((sn["ending"] for sn in reversed(self.snaps)
                        if sn.get("ending")), "")
         if ending:
@@ -455,6 +483,44 @@ class ReviewWindow:
     def _redraw_chart(self):
         if self.snaps:
             draw_chart(self.canvas, self.snaps)
+
+    def _render_achievements(self):
+        self.ach_tree.delete(*self.ach_tree.get_children())
+        try:
+            unlocks = ach.parse_unlocks()
+            defs = ach.definitions()
+        except Exception:
+            self.ach_summary.configure(text=_t("ach_no_file"))
+            return
+        if not defs:
+            self.ach_summary.configure(text=_t("ach_no_file"))
+            return
+        have, total = ach.progress()
+        self.ach_summary.configure(text=_t("ach_progress").format(have, total))
+        missing = ach.missing_by_kind(unlocks)
+        if not any(missing.values()):
+            self.ach_tree.insert("", "end", text=_t("ach_none_missing"))
+            return
+        kinds = UI["ach_kinds"]  # nested dict, don't route through _t
+        for key in ("ending", "cult", "mansus", "promoted", "summon"):
+            items = missing.get(key)
+            if not items:
+                continue
+            zh, en = kinds.get(key, (key, key))
+            title = f"{zh if lexicon.get_language() == 'zh' else en} ({len(items)})"
+            gid = self.ach_tree.insert("", "end", text=title, tags=("group",),
+                                       open=key != "ending")
+            for aid in sorted(items):
+                d = defs.get(aid, {})
+                label = d.get("label", aid)
+                desc = d.get("descriptionunlocked", "") or ""
+                hidden = d.get("isHidden")
+                text = label if not hidden else (
+                    "???" if lexicon.get_language() == "zh" else "???")
+                node = self.ach_tree.insert(gid, "end", text=text)
+                if desc and not hidden:
+                    self.ach_tree.insert(node, "end",
+                                         text=desc.replace("\n", " ")[:180])
 
     def _render_stats(self):
         self.stats_tree.delete(*self.stats_tree.get_children())

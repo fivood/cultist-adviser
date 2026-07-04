@@ -61,6 +61,31 @@ def test_latest_recipe_counts_scans_backwards():
     assert latest_recipe_counts([{}]) == {}
 
 
+def test_achievement_id_mapping_and_parsing(tmp_path):
+    from cultist_adviser import achievements as ach
+    # id mapping — the small set of irregular renames.
+    assert ach._ach_ending_key("a_ending_wintersacrifice") == "wintersacrifice"
+    assert ach._ach_ending_key("a_ending_minorforgevictory_withrisen") == \
+        "minorforgevictorywithrisen"
+    assert ach._ach_ending_key("a_ending_colonel") == "ascensioncolonel"
+    assert ach._ach_ending_key("a_ending_minorwintervictory") == "minorpalestvictory"
+
+    # base64 line format — one "key": "date" per line.
+    import base64
+    lines = [
+        '"a_ending_wintersacrifice": "15/09/2019 05:03:28"',
+        '"a_cult_lantern": "01/06/2021 21:00:00"',
+    ]
+    encoded = "\n".join(base64.b64encode(l.encode()).decode() for l in lines)
+    (tmp_path / "achievements.json").write_text(encoded, encoding="utf-8")
+    unlocks = ach.parse_unlocks(tmp_path / "achievements.json")
+    assert set(unlocks) == {"a_ending_wintersacrifice", "a_cult_lantern"}
+    assert "15/09/2019" in unlocks["a_ending_wintersacrifice"]
+
+    # missing file just returns empty, never crashes.
+    assert ach.parse_unlocks(tmp_path / "nope.json") == {}
+
+
 def test_ending_lessons():
     pytest.importorskip("tkinter")
     from cultist_adviser.review import ending_lesson
