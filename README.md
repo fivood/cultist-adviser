@@ -1,146 +1,202 @@
-# 密教军师 · Cultist Adviser
+# Cultist Adviser · 密教军师
 
-《密教模拟器》(Cultist Simulator) 的只读建议悬浮窗。它监视存档文件，
-按当前局面给出优先级排序的操作建议——**只出主意，不碰游戏**：
-不读屏、不模拟鼠标键盘、不修改存档。游戏窗口完全不受影响。
+[中文](README.zh-CN.md) | **English**
 
-A read-only floating adviser for Cultist Simulator. It watches the save
-file, never the game window: no screen capture, no input simulation.
+A read-only floating adviser for **Cultist Simulator**. It watches the save
+file and offers prioritized suggestions for the current board — **advice only,
+hands off**: no screen capture, no input simulation, no save editing. The game
+window is never touched.
 
 ---
 
-## 快速开始
+## Quick start
 
-**前提**：Windows、已安装游戏本体（军师从游戏文件读取本地化名称与配方数据）。
+**Requirements**: Windows, with the game installed (the adviser reads
+localized names and recipe data from the game's own files).
 
-### 无需 Python
+### No Python needed
 
-从 [Releases](https://github.com/fivood/cultist-adviser/releases)
-下载最新的 `CultistAdviser-vX.Y.Z.zip`，解压后双击 `CultistAdviser.exe`。
-压缩包内 `使用说明.txt` 有详细用法。
+Download the latest `CultistAdviser-vX.Y.Z.zip` from
+[Releases](https://github.com/fivood/cultist-adviser/releases), unzip, and
+double-click `CultistAdviser.exe`. A usage guide (中文) is included.
 
-### 源码运行
+### Run from source
 
-Python 3.10+（仅需标准库）：
+Python 3.10+ (standard library only):
 
 ```
 python -m cultist_adviser
 ```
 
-自行打包 exe：`pip install pyinstaller` 后
-`python -m PyInstaller --onefile --noconsole --name CultistAdviser launcher.py`。
+Build your own exe: `pip install pyinstaller`, then
+`python -m PyInstaller --onefile --noconsole --name CultistAdviser launcher.py`.
 
-### 路径覆盖
+### Path overrides
 
-自动探测游戏目录不成功时用环境变量指定：
+If auto-detection misses your install, set environment variables:
 
-| 变量 | 含义 | 默认 |
+| Variable | Meaning | Default |
 |---|---|---|
-| `CULTIST_GAME_DIR` | 游戏安装目录 | 遍历常见 Steam 库位置 |
-| `CULTIST_SAVE_DIR` | 存档目录 | `%USERPROFILE%\AppData\LocalLow\Weather Factory\Cultist Simulator` |
+| `CULTIST_GAME_DIR` | game install folder | common Steam library locations |
+| `CULTIST_SAVE_DIR` | save folder | `%USERPROFILE%\AppData\LocalLow\Weather Factory\Cultist Simulator` |
 
-首次启动会在程序目录生成 `lexicon_cache.json` / `knowledge_cache.json`
-两个缓存；游戏更新后删掉即可重建。设置持久化在同目录 `settings.json`
-（语言、剧透等级）。
-
----
-
-## 三档剧透等级
-
-军师尊重克苏鲁式的未知体验，抉择前不掀牌。顶栏下拉可切换：
-
-- **守密人**：只报生存警报（会死的事），命运的抉择留给你自己
-- **顾问**（默认）：给引导但不预告抉择后果——远征障碍侦察后才显示、
-  时节牌库只报张数、遗赠等命运时刻只标记不剧透
-- **全知**：开天眼，隐藏牌堆、抉择后果、书商存货尽收眼底
-
-被收起的提示会显示条数，随时可调。设置本地持久化。
+First launch writes two caches (`lexicon_cache.json` /
+`knowledge_cache.json`) next to the program; delete them after a game update
+to rebuild. Settings persist in `settings.json` (language, spoiler level).
 
 ---
 
-## 功能一览
+## Three spoiler tiers
 
-**危险警报**——绝望/幻象死亡倒计时、审判进行中、波比索魂、疾病夺命、
-长生者刺杀/袭击/对决、对手飞升仪式、证据/猎人、病痛/躁动/饥饿、资金水位。
-所有致死 verb 都会红色高亮。
+The adviser respects the occult experience of not knowing. Switch from the
+top bar:
 
-**时节系统**——读取时光 verb 已抽出的下一时节，未备好对策时提前警告
-（含野心时节的贡品检查）；时节牌库剩余构成透视——绝望/幻象已抽完时，
-恐惧/入迷囤积警报自动降级。
+- **Keeper** — survival alerts only (things that kill you); fateful choices
+  stay yours
+- **Counsel** (default) — guidance without foretelling outcomes: expedition
+  obstacles show only after scouting, the seasons deck reports card counts
+  only, bequests are flagged but not spoiled
+- **Revelation** — the all-seeing eye: hidden piles, choice outcomes, and
+  bookshop stock laid bare
 
-**新手开局引导**——本体 4 职业（有志青年 / 警探 / 富家子弟 / 医师）
-+ DLC 4 职业（舞者 / 教士 / 食尸鬼 / 流亡者），按各职业剧情卡逐步提示，
-数值全部核对自游戏配方 JSON。
-
-**中后期推进**——建团缺件清单（差熟人还是差秘传，一句话说清）、野心 1→6
-各阶段的条件核对、漫宿逐门开门核对（对照你的秘传报差距）、牡鹿之门谜语
-精确应答、对手（长生者候补）预警与谋划期主动反制、终局清单
-（主系秘传 X/36 对账，**够了就明说不用再攒**）。
-
-**手下招募规划**——在场熟人的系别倾向一览（23 个 NPC 各有固定倾向），
-教团缺蛾/刃系关键手下时点名可招募的人选。
-
-**流亡者生存**——DLC 流亡者模式专属：伤势治疗、仇敌爪牙警报、痕迹积累
-提醒（这套机制与本体完全不同）。
-
-**全程阶段横幅**——按局面自动判定当前主线（谋生 → 建团 → 确立野心 →
-牡鹿之门 → 野心时节晋升 → 飞升终局），常驻一行"当前阶段"，
-任何时候瞟一眼就知道大方向，不用切出去查 wiki。
-
-**败局分析**——一局结束后复盘窗口自动给出死因白话和下局预防要点，
-游戏定义的全部 63 种结局都有专属落幕文案（含 21 种婚姻结局、
-标准飞升、DLC 各线），把"又死了"变成"学到了"。
-
-**读书与语言顾问**——看不懂的书按语言汇总并给出获取学者卡的途径；
-书商剩余存货与在售教材（买空得书店房间）；空闲研读优先推荐可读/可译的书。
-
-**秘传升级计算器**——野心 2→3 缺 6 级秘传时，按你手上的碎片给出最短路径
-（同类升级 / 拗转牺牲上游系 / 从零收集）。
-
-**远征作战计划**——藏宝地在场时逐个障碍列出克制系（41 个本体藏点全覆盖），
-按你手下的切面等级给出成功率（必成 / 约七成 / 约三成 / 硬性失败）。
-
-**手下派工建议**——销毁证据、袭击猎人按你手下的蛾/刃/冬系等级给出真实
-成功率与失败代价。
-
-**空闲行动建议**——每个空闲 verb 给出当前最优用法及理由。
-
-**场上资源表**——按类别分组的可折叠树（威胁/资源/碎片/秘传/影响/书籍/
-人员/地点/其他），组内按到期时间排序；筛选框和"只看倒计时"开关；
-多张同名卡展开看各自倒计时；双击卡牌打开卡片说明（**用途** + **获得方式**
-两个 tab，直接看这张卡能与什么配方一起投入哪个行动格）。冷却态卡牌
-（疲劳、耗尽、恢复中的手下/武器等）以蓝色标记，不会催"尽快使用"。
-
-**分层建议面板**——⚠ 紧急 / ● 建议 / ○ 情报三档视觉分级，
-危机永远醒目在顶，背景情报静静垫底。可开启提醒音，新的紧急警报出现时
-响一声系统提示音（游戏全屏时不用盯着军师也能听到危机）。
-
-**实时刷新**——直接读取存档内容判断变化，不再依赖文件时间戳
-（Windows 上时间戳会延迟刷新，导致要切窗口才更新——此问题已修复）。
-
-**暂停感知**——存档超过应到时间未更新即判定游戏暂停，读秒冻结。
-
-**一局史复盘**——按角色（存档建档时间）记录整局历史，从新档到结局，
-跨 GUI 重启续记。事件史时间线：每次行动选择（verb + 配方）、关键卡得失、
-危机始末、最终结局；行为统计面板：本局每种行动做了多少次（取自存档的
-配方执行计数）；资源趋势图与统计摘要。
-
-**Steam 成就追踪**——读取游戏的本地成就记录（那个 base64 编码的存档目录
-成就文件）：复盘窗口显示总进度 `N/83`，未解锁按类别折叠展开；游戏进行中
-如果当前局面已经在通往未解锁的成就（建了对应系别的教团、开了漫宿新门、
-提升了升华门徒、召唤了灵体），军师会低调提醒"这局可获成就：XX"。
-守密人档跳过——成就是元游戏推力，会影响路线自由度。
-
-**双语**——卡牌/行动名取自游戏自带的中英文本地化，界面一键切换。
+Suppressed hints show as a count; switch any time. Settings persist locally.
 
 ---
 
-## 致谢与许可
+## Features
 
-- MIT License。
-- 部分规则移植自 [autoccultist](https://github.com/SunsetFi/autoccultist)
-  的 brain-config（MIT License, Copyright 2020 RoboPhredDev）
-- 策略知识整理见 [docs/strategy_knowledge.md](docs/strategy_knowledge.md)，
-  来源包括 Steam 社区攻略与 Fandom Wiki
-- 《密教模拟器》© Weather Factory。本项目与 Weather Factory 无关，
-  不包含任何游戏资源，运行时读取的是玩家本地已安装的游戏内容
+**Danger alerts** — Despair/Visions death countdowns, trials in progress,
+Poppy's summons, lethal sickness, Long assassinations/raids/duels, rival
+ascension rites, evidence/hunters, affliction/restlessness/hunger, funds
+watermark. Every lethal verb is highlighted in red.
+
+**Seasons** — reads the next season already drawn into the Time verb and
+warns when you're unprepared (including the Ambition season's tribute
+check); sees what the seasons deck still holds, so dread/fascination
+stockpile alerts soften automatically once Despair/Visions are exhausted
+this cycle. At Revelation tier it goes further: **the exact order of the
+remaining seasons with arrival estimates**. The pile's stored order *is*
+the draw order (the engine shuffles only on refill), so this is prophecy,
+not probability — "two more Despairs, in ~4 and ~5 minutes".
+
+**Recipe scanner ("what can I start right now")** — matches the recipe
+library live using the engine's aspect semantics: every card contributes
+its own id plus all aspects, aggregated against recipe requirements,
+negative (forbidden) requirements included. Idle-verb suggestions list
+"ingredients ready" recipes with the exact cards to use (it knows two
+Contentments add up to Heart 4); **double-click a verb row** for the full
+startable list.
+
+**Decay chains** — decay targets read from game data: timed cards are
+labeled with where their countdown leads ("Restlessness → Dread"), so you
+can tell at a glance which timers to fear. Expiry warnings split by
+outcome — degradations are named ("becomes Dread when it expires"),
+harmless transformations (Fatigue back into Health) stop nagging. The card
+dialog shows the full decay chain.
+
+**Opening walkthroughs** — all 4 base professions (Aspirant / Detective /
+Bright Young Thing / Physician) + 4 DLC starts (Dancer / Priest / Ghoul /
+Exile), stepped by each legacy's own plot cards, every number checked
+against the game's recipe JSON.
+
+**Mid/late game progression** — cult-founding checklist (missing an
+acquaintance or the lore? one line says which), Ambition 1→6 stage checks,
+Mansus door-by-door requirements against your actual lore, exact Stag Door
+riddle answers, rival (Long candidate) warnings with proactive counterplay
+during their scheming window, endgame accounting (primary lore X/36 —
+**it says so when you have enough**).
+
+**Recruitment planning** — affinity overview for acquaintances on the board
+(all 23 NPCs have fixed leanings); when the cult lacks a key Moth/Edge
+follower, it names who to recruit.
+
+**Exile survival** — dedicated rules for the Exile DLC: wound treatment,
+foe-minion alerts, Trace accumulation (a mechanic set entirely unlike the
+base game).
+
+**Stage banner** — the adviser infers your current main line (making a
+living → founding a cult → dedication → Stag Door → Ambition seasons →
+ascension) and keeps a one-line "current stage" always visible. Glance at
+it instead of alt-tabbing to a wiki.
+
+**Defeat analysis** — when a run ends, the review window explains the death
+in plain words with prevention notes for next time. All 63 endings defined
+by the game have bespoke epilogues (21 marriage endings, standard
+ascensions, DLC lines) — turning "died again" into "learned something".
+
+**Books & languages counsel** — unreadable books grouped by language with
+ways to get the scholar card; bookshop stock and textbooks on sale (empty
+the shop to gain the room); idle Study prefers readable/translatable books.
+
+**Lore upgrade calculator** — when Ambition 2→3 needs a level-6 lore, it
+computes the shortest path from your actual fragments (same-type upgrade /
+subversion / collect from scratch).
+
+**Expedition planning** — with a vault on the board, every obstacle is
+listed with its countering aspects (all 41 base-game sites covered) and
+success odds computed from your followers' actual aspect levels
+(guaranteed / ~70% / ~30% / hard fail).
+
+**Follower assignments** — destroying evidence or attacking hunters shows
+real success rates and failure costs based on your followers' Moth/Edge/
+Winter levels.
+
+**Idle verb suggestions** — the best current use for every idle verb, with
+reasons, plus the ingredients-ready startable recipes.
+
+**Board resource table** — a collapsible tree grouped by category
+(threats / resources / fragments / lore / influences / books / people /
+places / misc), sorted by expiry within groups; a filter box and a
+"timed only" toggle; same-name cards expand to individual countdowns;
+timed cards labeled with their decay target; double-click any card for the
+card dialog (**Uses** + **How to obtain** tabs, decay chain on top).
+Cooldown-state cards (fatigue, exhausted, recovering followers/weapons)
+are marked blue and never nagged about.
+
+**Tiered suggestion panel** — ⚠ urgent / ● advice / ○ intel, visually
+distinct; crises always on top, background intel resting quietly below.
+Optional alert sound: a system beep whenever a new urgent alert appears
+(hear the crisis without watching the window in fullscreen).
+
+**Live refresh** — detects changes by reading save content, not file
+timestamps (Windows delays timestamp updates, which used to require
+alt-tabbing; fixed).
+
+**Pause awareness** — when the save is overdue, the game is presumed
+paused and countdowns freeze.
+
+**Run history & review** — records the whole run per character (keyed by
+save creation time), from fresh start to ending, resuming across GUI
+restarts. Event timeline: every action choice (verb + recipe), key card
+gains/losses, crises from onset to resolution, the final ending. Action
+statistics from the save's own recipe-execution counters. Resource trend
+chart and summary stats.
+
+**Steam achievement tracking** — reads the game's local achievement record
+(that base64-encoded file in the save folder): the review window shows
+progress `N/83` with locked ones grouped by category; during play, if the
+current board is already on track toward a locked achievement (founded the
+matching cult, opened a new Mansus door, exalted a disciple, summoned a
+spirit), the adviser quietly notes "achievable this run: X". Skipped at
+Keeper tier — achievements are a metagame pull that bends route freedom.
+
+**Bilingual** — card/verb names come from the game's own Chinese/English
+localization; the UI switches with one click.
+
+---
+
+## Credits & license
+
+- MIT License.
+- Some rules ported from
+  [autoccultist](https://github.com/SunsetFi/autoccultist)'s brain-config
+  (MIT License, Copyright 2020 RoboPhredDev)
+- Engine behaviors (season draw order, etc.) verified against the official
+  source mirror
+  [applers/cultistsimulator](https://github.com/applers/cultistsimulator)
+- Strategy notes in
+  [docs/strategy_knowledge.md](docs/strategy_knowledge.md), sourced from
+  Steam community guides and the Fandom wiki
+- Cultist Simulator © Weather Factory. This project is unaffiliated with
+  Weather Factory and ships no game assets; at runtime it reads the
+  player's locally installed game content.
