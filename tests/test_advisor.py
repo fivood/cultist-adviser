@@ -143,6 +143,23 @@ def test_season_deck_listing_and_reshuffle_notice():
     assert by_priority(state([verb("time", 55)], draw_piles=empty), 14)
 
 
+def test_season_deck_order_and_eta_at_full_spoiler():
+    # Pile order is the exact draw order (Dealer.cs draws First(), shuffles
+    # only on refill), so the reveal must preserve it and estimate arrivals.
+    from cultist_adviser.advisor import advise as adv
+    piles = {"seasonevents_draw": ["seasonardours", "seasonsuspicion", "seasondespair"]}
+    st = state([verb("time", 30),
+                card("seasondespair", sphere="~/tabletop!time_1/situationstoragesphere")],
+               draw_piles=piles)
+    full = next(s for s in adv(st, spoiler=2).suggestions if s.priority == 14)
+    d = full.detail
+    from cultist_adviser.lexicon import display_name
+    n1, n2, n3 = (display_name(x) for x in
+                  ("seasonardours", "seasonsuspicion", "seasondespair"))
+    assert d.index(n1) < d.index(n2) < d.index(n3)
+    assert "~1:30" in d and "~2:30" in d  # 30s left on time verb + 60s per cycle
+
+
 # ------------------------------------------------------------------ doom ---
 
 def test_trial_alert_fires_on_trial_recipes_only():
@@ -507,6 +524,64 @@ def test_use_ways_and_aspect_fallback():
         assert empty == []
     finally:
         km._recipes, km._uses, km._el_aspects = orig
+
+
+def test_startable_recipes_aspect_matching():
+    """The 'what can I start now' scanner: aspect aggregation, negative
+    requirements, and the distinct-card cap."""
+    from cultist_adviser import knowledge as km
+    recipes = [
+        # needs heart 4 — two contentment (heart 2 each) should satisfy it
+        {"id": "r_heart", "action": "study", "craftable": True, "hint": False,
+         "req": {"heart": 4}, "neg": {}, "eff": {}},
+        # forbidden while dread present
+        {"id": "r_calm", "action": "dream", "craftable": True, "hint": False,
+         "req": {"health": 1}, "neg": {"dread": -1}, "eff": {}},
+        # not craftable -> never startable
+        {"id": "r_link", "action": "study", "craftable": False, "hint": False,
+         "req": {"heart": 1}, "neg": {}, "eff": {}},
+    ]
+    aspects = {"contentment": {"heart": 2}, "health": {"heart": 1}, "dread": {"edge": 1}}
+    orig = km._recipes, km._el_aspects
+    km._recipes, km._el_aspects = recipes, aspects
+    try:
+        hits = km.startable_recipes("study", {"contentment": 2})
+        assert [m["recipe"]["id"] for m in hits] == ["r_heart"]
+        assert hits[0]["chosen"] == {"contentment": 2}
+        # one contentment (heart 2) is not enough for heart 4
+        assert not km.startable_recipes("study", {"contentment": 1})
+        # negative requirement: dread on the table blocks the calm dream
+        assert km.startable_recipes("dream", {"health": 1})
+        assert km.startable_recipes("dream", {"health": 1, "dread": 1})
+        # ...but dread only blocks if it would be PICKED — it isn't needed
+        # for {health:1}, so the recipe still matches. Force the block by
+        # requiring dread's aspect so greedy must pick it:
+        km._recipes = [{"id": "r_block", "action": "dream", "craftable": True,
+                        "hint": False, "req": {"edge": 1, "health": 1},
+                        "neg": {"dread": -1}, "eff": {}}]
+        assert not km.startable_recipes("dream", {"health": 1, "dread": 1})
+    finally:
+        km._recipes, km._el_aspects = orig
+
+
+def test_expiry_nag_follows_decay_outcome():
+    """Harmless decay (-> benign card) silences the expiry nag; harmful decay
+    (-> ill health) keeps it. Assert by priority, not localized text."""
+    from cultist_adviser import knowledge as km
+    orig = km._decays, km._el_aspects
+    decays = dict(km._decays)
+    aspects = dict(km._el_aspects)
+    decays.update({"fakegood": "health", "fakebad": "fakerot"})
+    aspects.update({"fakegood": {}, "fakebad": {}, "health": {},
+                    "fakerot": {"illhealth": 1}})
+    km._decays, km._el_aspects = decays, aspects
+    try:
+        benign = state([card("fakegood", lifetime=40), verb("time", 55)])
+        assert not [s for s in suggestions(benign) if s.priority in (80, 150)]
+        harmful = state([card("fakebad", lifetime=40), verb("time", 55)])
+        assert [s for s in suggestions(harmful) if s.priority == 80]
+    finally:
+        km._decays, km._el_aspects = orig
 
 
 def test_pause_detection_logic():

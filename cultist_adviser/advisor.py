@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 from .save_parser import GameState, ElementStack, Situation, stack_quantity, find_situations
 from .lexicon import display_name, recipe_name, situation_name, tr, get_language
 from .knowledge import (obtain_hint, has_aspect, element_aspects,
-                        vault_obstacles, obstacle_counters)
+                        vault_obstacles, obstacle_counters, startable_lines,
+                        decays_to, decay_is_bad)
 from . import achievements as ach
 
 TABLETOP = "~/tabletop"
@@ -392,24 +393,30 @@ def _season_deck_rules(state: GameState, out: list[Suggestion]):
                "It reshuffles when empty. Which seasons remain stays a mystery."),
             spoiler=SPOILER_GUIDE))
         return
-    counts: dict[str, int] = {}
-    for c in pile:
-        counts[c] = counts.get(c, 0) + 1
-    if get_language() == "zh":
-        listing = "、".join(f"{display_name(c)}×{n}" for c, n in counts.items())
-    else:
-        listing = ", ".join(f"{n}× {display_name(c)}" for c, n in counts.items())
-    nxt, _ = _next_season(state)
+    # Full spoiler: the pile order IS the draw order. The engine draws
+    # _drawPile.GetElementTokens().First() and only randomizes at reshuffle
+    # (Dealer.cs in the game source), so the upcoming sequence is exact.
+    # ETAs assume the ~60s time cycle: the season already in the time verb
+    # fires at eta0, pile[i] at roughly eta0 + 60*(i+1).
+    nxt, eta0 = _next_season(state)
+    arrow = " → "
+    steps = []
+    for i, c in enumerate(pile):
+        eta = eta0 + 60 * (i + 1)
+        m, s = divmod(int(eta), 60)
+        steps.append(f"{display_name(c)} ~{m}:{s:02d}" if nxt else display_name(c))
     gone = [f"season{v}" for v in ("despair", "visions")
-            if f"season{v}" not in counts and nxt != f"season{v}"]
-    detail = listing + tr("。", ".")
+            if f"season{v}" not in pile and nxt != f"season{v}"]
+    detail = arrow.join(steps) + tr("。时间为约数，事件可能顺延。",
+                                    ". Times are estimates; events may push them back.")
     if gone:
         names = "、".join(display_name(g) for g in gone) if get_language() == "zh" \
             else " / ".join(display_name(g) for g in gone)
         detail += tr(f"{names}本轮已抽完，重洗前不会再来。",
                      f" {names} won't come again until the reshuffle.")
     out.append(Suggestion(14,
-        tr(f"本轮时节牌库还剩 {len(pile)} 张", f"Seasons left this cycle: {len(pile)}"),
+        tr(f"本轮时节顺序已确定（剩 {len(pile)} 张）",
+           f"Season order this cycle is fixed ({len(pile)} left)"),
         detail, spoiler=SPOILER_REVEAL))
 
 
@@ -632,23 +639,37 @@ def _generic_rules(state: GameState, out: list[Suggestion]):
     covered = _pair_study_rules(state, out)
 
     # Aggregate expiring cards per entity so "2 vitality about to rot" is one line.
+    # Decay knowledge splits the outcome: harmless transformations (fatigue back
+    # into health, memories into influences) aren't worth a nag; harmful ones
+    # (-> ill health) get named instead of the generic "it will rot".
     expiring: dict[str, list[float]] = {}
     for s in _tabletop_stacks(state):
         if 0 < s.lifetime_remaining <= 60 and s.entity_id not in covered \
                 and s.entity_id not in TIMED_AFFLICTIONS \
                 and s.entity_id not in GOOD_RIDDANCE \
                 and not is_cooldown(s.entity_id):
+            target = decays_to(s.entity_id)
+            if target and not decay_is_bad(s.entity_id):
+                continue  # it just turns into something harmless
             expiring.setdefault(s.entity_id, []).append(s.lifetime_remaining)
     for eid, lives in expiring.items():
         soonest = min(lives)
         n = len(lives)
         name = display_name(eid)
         head = tr(f"{n} 张「{name}」", f"{n}× {name}") if n > 1 else tr(f"「{name}」", name)
+        target = decays_to(eid)
+        if target:  # only bad targets survive the filter above
+            title = tr(f"{head} 将在约 {soonest:.0f} 秒后恶化",
+                       f"{head} degrades in ~{soonest:.0f}s")
+            detail = tr(f"过期会变成「{display_name(target)}」，尽快使用或处理。",
+                        f"It becomes {display_name(target)} — use or deal with it first.")
+        else:
+            title = tr(f"{head} 即将消失（最快约 {soonest:.0f} 秒）",
+                       f"{head} expiring (soonest ~{soonest:.0f}s)")
+            detail = tr("尽快使用，否则会腐朽/消散。", "Use it before it decays.")
         out.append(Suggestion(
             priority=150 if soonest <= 20 else 80,
-            title=tr(f"{head} 即将消失（最快约 {soonest:.0f} 秒）",
-                     f"{head} expiring (soonest ~{soonest:.0f}s)"),
-            detail=tr("尽快使用，否则会腐朽/消散。", "Use it before it decays."),
+            title=title, detail=detail,
             urgent=soonest <= 20,
         ))
 
@@ -778,18 +799,40 @@ def _best_idle_use(state: GameState, verb_id: str):
     return None
 
 
+def _tabletop_card_counts(state: GameState) -> dict:
+    counts: dict[str, int] = {}
+    for s in _tabletop_stacks(state):
+        counts[s.entity_id] = counts.get(s.entity_id, 0) + s.quantity
+    return counts
+
+
 def _idle_verb_rules(state: GameState, out: list[Suggestion]):
     doom_verbs = {v for v, *_ in DOOM_SITUATIONS} | set(DANGER_VERBS)
     idle = [s for s in find_situations(state)
             if s.time_remaining <= 0 and s.verb_id != "time"
             and s.verb_id not in doom_verbs]
+    cards = _tabletop_card_counts(state) if idle else {}
     for s in idle:
         best = _best_idle_use(state, s.verb_id)
         name = display_name(s.verb_id)
+        startable = startable_lines(s.verb_id, cards, limit=3) \
+            if _spoiler >= SPOILER_GUIDE else []
+        joiner = tr("；", "; ")
         if best and _spoiler >= SPOILER_GUIDE:
             out.append(Suggestion(
                 priority=45,
                 title=tr(f"「{name}」空闲，建议：{best[0]}", f"{name} idle — try: {best[1]}"),
+                detail=tr(f"此外材料已齐：{joiner.join(startable)}",
+                          f"Ingredients also ready for: {joiner.join(startable)}")
+                if startable else "",
+                spoiler=SPOILER_GUIDE,
+            ))
+        elif startable:
+            out.append(Suggestion(
+                priority=44,
+                title=tr(f"「{name}」空闲，材料已齐：{startable[0]}",
+                         f"{name} idle — ready to start: {startable[0]}"),
+                detail=joiner.join(startable[1:]),
                 spoiler=SPOILER_GUIDE,
             ))
         else:

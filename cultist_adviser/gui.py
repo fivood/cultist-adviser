@@ -20,9 +20,13 @@ from .advisor import (advise, Advice, ALERT_VERBS, SPOILER_GUIDE, is_cooldown,
 
 def _decay_is_harmless(entity_id: str) -> bool:
     """The card's disappearance is welcome or a normal cooldown — never dress
-    it as an emergency in the resource table."""
-    return is_cooldown(entity_id) or entity_id in GOOD_RIDDANCE
-from .knowledge import obtain_ways, use_ways, element_aspects
+    it as an emergency in the resource table. Cards that decay into something
+    benign (fatigue back into health, memories into influences) also qualify."""
+    if is_cooldown(entity_id) or entity_id in GOOD_RIDDANCE:
+        return True
+    return bool(decays_to(entity_id)) and not decay_is_bad(entity_id)
+from .knowledge import (obtain_ways, use_ways, element_aspects, startable_lines,
+                        decays_to, decay_is_bad, decay_chain, element_lifetime)
 
 SETTINGS_PATH = PROJECT_DIR / "settings.json"
 
@@ -76,6 +80,14 @@ UI = {
     "resources_hint": ("场上资源（双击卡牌：这张卡能干嘛 / 怎么弄到）",
                        "Table resources (double-click a card: what it does / how to get it)"),
     "card_title": ("卡片说明：{}", "Card: {}"),
+    "startable_title": ("「{}」现在可开始的配方", "Startable now in {}"),
+    "startable_hint": ("按场上现有的卡计算；材料是近似匹配，个别配方可能因槽位限制无法同放。",
+                       "Computed from cards on the table; matching is approximate — "
+                       "slot limits may block a few combinations."),
+    "startable_none": ("场上的卡凑不出这个行动的任何可开始配方。",
+                       "No startable recipe for this verb with the cards on the table."),
+    "decay_line": ("衰变链：{}", "Decay chain: {}"),
+    "decay_end": (" → 消失", " → gone"),
     "tab_obtain": ("获得方式", "How to obtain"),
     "tab_uses": ("用途", "Uses"),
     "obtain_none": ("没有已知配方直接产出这张卡。", "No known recipe produces this card."),
@@ -232,6 +244,8 @@ class AdvisorApp:
         self.verb_tree.column("left", width=60, anchor="e")
         self.verb_tree.tag_configure("danger", foreground="#c62828")
         self.verb_tree.pack(fill="both", expand=True)
+        self.verb_tree.bind("<Double-1>", self._show_startable)
+        self._verb_items: dict[str, str] = {}  # tree item id -> verb id
         nb.add(self.verb_frame, weight=2)
 
         self.res_frame = ttk.Labelframe(nb, padding=4)
@@ -320,6 +334,19 @@ class AdvisorApp:
         win.title(_t("card_title").format(lexicon.display_name(eid)))
         win.geometry("620x360")
         win.attributes("-topmost", self.topmost_var.get())
+        chain = decay_chain(eid)
+        if element_lifetime(eid) or decays_to(eid):
+            parts = []
+            for ceid, life in chain:
+                label = lexicon.display_name(ceid)
+                parts.append(f"{label}({life}s)" if life else label)
+            line = " → ".join(parts)
+            if not decays_to(chain[-1][0]):
+                line += _t("decay_end") if element_lifetime(chain[-1][0]) else ""
+            lbl = ttk.Label(win, text=_t("decay_line").format(line),
+                            foreground="#a04000" if decay_is_bad(eid) else "#666666",
+                            wraplength=590)
+            lbl.pack(fill="x", padx=10, pady=(8, 0))
         nb = ttk.Notebook(win)
         nb.pack(fill="both", expand=True, padx=8, pady=8)
         for tab_key, hint_key, empty_key, items in (
@@ -339,6 +366,29 @@ class AdvisorApp:
                                font=("Microsoft YaHei UI", 9))
             text.configure(state="disabled")
             text.pack(fill="both", expand=True)
+
+    def _show_startable(self, event):
+        item = self.verb_tree.identify_row(event.y)
+        verb_id = self._verb_items.get(item)
+        if not verb_id or not self.advice:
+            return
+        cards = {r.entity_id: r.quantity for r in self.advice.resources}
+        lines = startable_lines(verb_id, cards, limit=12)
+        win = tk.Toplevel(self.root)
+        win.title(_t("startable_title").format(lexicon.display_name(verb_id)))
+        win.geometry("620x300")
+        win.attributes("-topmost", self.topmost_var.get())
+        text = tk.Text(win, wrap="word", font=("Microsoft YaHei UI", 10), relief="flat")
+        if lines:
+            text.insert("end", _t("startable_hint") + "\n\n", "hint")
+            for ln in lines:
+                text.insert("end", f"• {ln}\n")
+        else:
+            text.insert("end", _t("startable_none"))
+        text.tag_configure("hint", foreground="#888888",
+                           font=("Microsoft YaHei UI", 9))
+        text.configure(state="disabled")
+        text.pack(fill="both", expand=True, padx=8, pady=8)
 
     def _apply_language_chrome(self):
         self.root.title(_t("title"))
@@ -457,16 +507,18 @@ class AdvisorApp:
             drift = self._elapsed()
 
             self.verb_tree.delete(*self.verb_tree.get_children())
+            self._verb_items.clear()
             for v in self.advice.verbs:
                 left = max(0.0, v.time_remaining - drift) if v.time_remaining > 0 else 0.0
                 tags = ("danger",) if v.verb_id in ALERT_VERBS else ()
                 name = lexicon.display_name(v.verb_id)
                 if name == v.verb_id and v.recipe_id:  # season verbs have no label of their own
                     name = lexicon.recipe_name(v.recipe_id)
-                self.verb_tree.insert("", "end", tags=tags, values=(
+                item = self.verb_tree.insert("", "end", tags=tags, values=(
                     name,
                     lexicon.recipe_name(v.recipe_id) if v.recipe_id else "—",
                     _fmt_secs(left)))
+                self._verb_items[item] = v.verb_id
 
             self._render_resources(drift)
         if reschedule:
@@ -519,10 +571,14 @@ class AdvisorApp:
                     tags = ("expiring",)
                 else:
                     tags = ()
+                shown = name
+                if lives:  # timed cards show where the countdown leads
+                    target = decays_to(r.entity_id)
+                    shown = f"{name} → {lexicon.display_name(target)}" if target else name
                 parent = self.res_tree.insert(
                     gitem, "end", tags=tags,
                     open=bool(lives) and soonest <= 60 and not harmless,
-                    text=name,
+                    text=shown,
                     values=(r.quantity, _fmt_secs(soonest) if lives else _t("permanent")))
                 self._res_items[parent] = r.entity_id
                 if len(lives) > 1:

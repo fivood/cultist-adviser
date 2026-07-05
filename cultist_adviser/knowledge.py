@@ -20,15 +20,19 @@ _recipes: list[dict] = []          # {id, action, craftable, req{}, eff{}}
 _obtain: dict[str, list[int]] = {}  # element id -> indices into _recipes
 _uses: dict[str, list[int]] = {}    # element id -> recipes that take it as input
 _el_aspects: dict[str, dict] = {}   # element id -> {aspect: value}
+_decays: dict[str, str] = {}        # element id -> what it decays into
+_lifetimes: dict[str, int] = {}     # element id -> natural lifetime in seconds
 _vaults: dict[str, list[str]] = {}  # expedition site -> obstacle element ids
 _counters: dict[str, list[str]] = {}  # obstacle -> lore aspects that beat it
 
 
-def _parse_element_aspects() -> dict[str, dict]:
+def _parse_elements() -> tuple[dict, dict, dict]:
     aspects: dict[str, dict] = {}
+    decays: dict[str, str] = {}
+    lifetimes: dict[str, int] = {}
     folder = CONTENT_DIR / "core" / "elements"
     if not folder.is_dir():
-        return aspects
+        return aspects, decays, lifetimes
     for path in folder.glob("*.json"):
         try:
             data = _lenient_json(path.read_text(encoding="utf-8-sig"))
@@ -40,14 +44,23 @@ def _parse_element_aspects() -> dict[str, dict]:
             for e in value:
                 if not isinstance(e, dict) or not e.get("id") or e.get("isAspect"):
                     continue
+                eid = str(e["id"]).lower()
                 asp = {}
                 for k, v in (e.get("aspects") or {}).items():
                     try:
                         asp[str(k).lower()] = int(v)
                     except (TypeError, ValueError):
                         continue
-                aspects[str(e["id"]).lower()] = asp
-    return aspects
+                aspects[eid] = asp
+                if e.get("decayTo"):
+                    decays[eid] = str(e["decayTo"]).lower()
+                try:
+                    life = int(e.get("lifetime", 0))
+                except (TypeError, ValueError):
+                    life = 0
+                if life > 0:
+                    lifetimes[eid] = life
+    return aspects, decays, lifetimes
 
 
 def _parse_expeditions() -> tuple[dict, dict]:
@@ -88,11 +101,15 @@ def _parse_expeditions() -> tuple[dict, dict]:
 
 def _load():
     global _recipes, _obtain, _uses, _el_aspects, _vaults, _counters
+    global _decays, _lifetimes
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+            if cache.get("v") != 3:
+                raise KeyError("stale cache format")
             _recipes, _obtain = cache["recipes"], cache["obtain"]
             _el_aspects = cache["aspects"]
+            _decays, _lifetimes = cache["decays"], cache["lifetimes"]
             _vaults, _counters = cache["vaults"], cache["counters"]
             _uses = cache["uses"]
             return  # KeyError on caches from older versions -> rebuild below
@@ -117,7 +134,7 @@ def _load():
                     action = str(r.get("actionid") or r.get("actionId") or "").lower()
                     if action not in MAIN_VERBS:
                         continue
-                    req, eff = {}, {}
+                    req, neg, eff = {}, {}, {}
                     for k, v in (r.get("requirements") or {}).items():
                         try:
                             n = int(v)
@@ -125,6 +142,8 @@ def _load():
                             continue
                         if n > 0:
                             req[str(k).lower()] = n
+                        elif n < 0:
+                            neg[str(k).lower()] = n
                     for k, v in (r.get("effects") or {}).items():
                         try:
                             n = int(v)
@@ -132,10 +151,13 @@ def _load():
                             continue
                         if n > 0:
                             eff[str(k).lower()] = n
-                    if eff:
+                    # Effect-less recipes still matter for the startable
+                    # scanner (their payoff arrives via linked recipes).
+                    if eff or (r.get("craftable") and req):
                         recipes.append({"id": str(r["id"]).lower(), "action": action,
                                         "craftable": bool(r.get("craftable", False)),
-                                        "req": req, "eff": eff})
+                                        "hint": bool(r.get("hintonly", False)),
+                                        "req": req, "neg": neg, "eff": eff})
     obtain: dict[str, list[int]] = {}
     uses: dict[str, list[int]] = {}
     for i, r in enumerate(recipes):
@@ -144,13 +166,16 @@ def _load():
         for eid in r["req"]:
             uses.setdefault(eid, []).append(i)
     _recipes, _obtain, _uses = recipes, obtain, uses
-    _el_aspects = _parse_element_aspects()
+    _el_aspects, _decays, _lifetimes = _parse_elements()
     _vaults, _counters = _parse_expeditions()
     if recipes:
         try:
-            CACHE_PATH.write_text(json.dumps({"recipes": recipes, "obtain": obtain,
+            CACHE_PATH.write_text(json.dumps({"v": 3,
+                                              "recipes": recipes, "obtain": obtain,
                                               "uses": uses,
                                               "aspects": _el_aspects,
+                                              "decays": _decays,
+                                              "lifetimes": _lifetimes,
                                               "vaults": _vaults,
                                               "counters": _counters},
                                              ensure_ascii=False), encoding="utf-8")
@@ -236,9 +261,125 @@ def use_ways(entity_id: str, limit: int = 8, available: set | None = None) -> li
     return [_use_text(r, pivot) for r in sorted(ways, key=key)[:limit]]
 
 
+def _unit_aspects(entity_id: str) -> dict:
+    """Aspects one copy of a card contributes: its own id at 1 plus its aspects."""
+    eid = entity_id.lower()
+    asp = {eid: 1}
+    for k, v in _el_aspects.get(eid, {}).items():
+        asp[k] = asp.get(k, 0) + v
+    return asp
+
+
+def _match_requirements(req: dict, neg: dict, cards: dict) -> dict | None:
+    """Greedy pick of cards (eid -> copies) whose combined aspects satisfy the
+    positive requirements without tripping the negative ones. Approximates the
+    engine (which checks the cards actually slotted): we cap the pick at 4
+    distinct cards / 8 copies, since more can rarely co-slot in one verb."""
+    if not req:
+        return None
+    need = dict(req)
+    chosen: dict[str, int] = {}
+    for _ in range(8):
+        if not need:
+            break
+        best_eid, best_gain = None, 0
+        for eid, qty in cards.items():
+            if chosen.get(eid, 0) >= qty:
+                continue
+            asp = _unit_aspects(eid)
+            gain = sum(min(asp.get(k, 0), v) for k, v in need.items())
+            if gain > best_gain:
+                best_gain, best_eid = gain, eid
+        if best_eid is None:
+            return None
+        chosen[best_eid] = chosen.get(best_eid, 0) + 1
+        asp = _unit_aspects(best_eid)
+        for k in list(need):
+            need[k] -= asp.get(k, 0)
+            if need[k] <= 0:
+                del need[k]
+    if need or len(chosen) > 4:
+        return None
+    agg: dict[str, int] = {}
+    for eid, n in chosen.items():
+        for k, v in _unit_aspects(eid).items():
+            agg[k] = agg.get(k, 0) + v * n
+    for k, v in neg.items():  # engine: value -n means "aspect must be < n"
+        if agg.get(k, 0) >= -v:
+            return None
+    return chosen
+
+
+def startable_recipes(action: str, cards: dict, limit: int = 6) -> list[dict]:
+    """Craftable recipes of a verb whose requirements the given tabletop cards
+    (eid -> quantity) can plausibly satisfy. Returns [{recipe, chosen}] ranked
+    most-specific first; deduped by requirement signature."""
+    matches, seen = [], set()
+    for r in _recipes:
+        if r["action"] != action or not r["craftable"] or r.get("hint"):
+            continue
+        sig = (tuple(sorted(r["req"].items())), tuple(sorted(r.get("neg", {}).items())))
+        if sig in seen:
+            continue
+        chosen = _match_requirements(r["req"], r.get("neg", {}), cards)
+        if chosen is None:
+            continue
+        seen.add(sig)
+        matches.append({"recipe": r, "chosen": chosen})
+    matches.sort(key=lambda m: -len(m["recipe"]["req"]))
+    return matches[:limit]
+
+
+def startable_lines(action: str, cards: dict, limit: int = 6) -> list[str]:
+    """Human-readable '配方（用：卡…）' lines for startable_recipes."""
+    lines = []
+    for m in startable_recipes(action, cards, limit):
+        used = " + ".join(f"{display_name(e)}×{n}" if n > 1 else display_name(e)
+                          for e, n in m["chosen"].items())
+        lines.append(tr(f"{recipe_name(m['recipe']['id'])}（用：{used}）",
+                        f"{recipe_name(m['recipe']['id'])} (with {used})"))
+    return lines
+
+
 def element_aspects(entity_id: str) -> dict:
     """Aspects of an element as defined by the game (empty dict if unknown)."""
     return _el_aspects.get(entity_id.lower(), {})
+
+
+def decays_to(entity_id: str) -> str:
+    """What this element turns into when its timer runs out ('' = vanishes)."""
+    return _decays.get(entity_id.lower(), "")
+
+
+def element_lifetime(entity_id: str) -> int:
+    """Natural lifetime in seconds (0 = permanent)."""
+    return _lifetimes.get(entity_id.lower(), 0)
+
+
+def decay_is_bad(entity_id: str) -> bool:
+    """True when expiry turns the card into something harmful (ill health etc.)."""
+    target = decays_to(entity_id)
+    if not target:
+        return False
+    return bool(element_aspects(target).get("illhealth")) or target == "trace"
+
+
+def decay_chain(entity_id: str, limit: int = 4) -> list[tuple[str, int]]:
+    """Follow decayTo links: [(element, its lifetime), ...] starting from the
+    card itself. Stops at a permanent element or after `limit` hops."""
+    chain = []
+    eid = entity_id.lower()
+    seen = set()
+    for _ in range(limit):
+        if eid in seen:
+            break
+        seen.add(eid)
+        chain.append((eid, element_lifetime(eid)))
+        nxt = decays_to(eid)
+        if not nxt:
+            break
+        eid = nxt
+    return chain
 
 
 def has_aspect(entity_id: str, aspect: str) -> bool:
