@@ -1514,9 +1514,11 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
     if track == "change":  # the Dancer's own road
         out.append(Suggestion(58,
             tr("蜕变之路进行中", "The road of Change continues"),
-            tr("在夜总会跳舞（4 级心或蛾之影响 + 欲望卡）换取「课程」，逐步完成蜕变。",
+            tr("在夜总会跳舞（4 级心或蛾之影响 + 欲望卡）换取「拟态」（心系）或「龄虫」（蛾系）"
+               "——蜕变的形体材料，凑齐新旧形体逐步完成蜕变。",
                "Dance at the club (a level-4 Heart or Moth influence with your desire card) "
-               "to earn the surrendering lessons, one by one.")))
+               "to earn Guises (Heart) or Instars (Moth) — the forms your metamorphosis "
+               "is assembled from.")))
         return
     lore = ASCENSION_LORE[track]
     lore_zh = ASPECT_ZH[lore]
@@ -1727,8 +1729,8 @@ def _stage_banner(state: GameState, out: list[Suggestion]):
                 "card to Dedication (ambition 2).")
     elif pos[0] == "change":
         zh, en = "推进蜕变", "walk the road of Change"
-        d_zh = "在夜总会跳舞换取课程，一步步完成蜕变。"
-        d_en = "Dance at the club for the surrendering lessons, one by one."
+        d_zh = "在夜总会跳舞换取拟态/龄虫形体，凑齐新旧形体完成蜕变。"
+        d_en = "Dance at the club for Guises and Instars — the forms of your metamorphosis."
     elif pos[1] == "b":
         zh, en = "叩响牡鹿之门", "knock on the Stag Door"
         d_zh = "主线是漫宿答谜取得道路，并凑出 6 级主系秘传——两样齐了野心就能到 3 级。"
