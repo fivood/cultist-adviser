@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cultist-adviser"
-version = "0.6.0"
+dynamic = ["version"]
 description = "Read-only floating adviser for Cultist Simulator — watches the save file, never the game window"
 readme = "README.md"
 license = { text = "MIT" }
@@ -23,3 +23,6 @@ cultist-adviser = "cultist_adviser.gui:main"
 
 [tool.setuptools]
 packages = ["cultist_adviser"]
+
+[tool.setuptools.dynamic]
+version = { attr = "cultist_adviser.__version__" }

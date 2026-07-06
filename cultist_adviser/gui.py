@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
+from . import __version__
 from .config import SAVE_PATH, SAVE_POLL_INTERVAL, PROJECT_DIR
 from .save_parser import parse_save_bytes
 from . import lexicon
@@ -190,34 +191,38 @@ class AdvisorApp:
         root.geometry("470x660")
         root.attributes("-topmost", True)
 
-        top = ttk.Frame(root, padding=(8, 6))
+        # Two rows so the controls never squeeze each other or the status
+        # text on narrow windows: row 1 status, row 2 all controls.
+        top = ttk.Frame(root, padding=(8, 6, 8, 0))
         top.pack(fill="x")
         self.status_var = tk.StringVar()
         ttk.Label(top, textvariable=self.status_var).pack(side="left")
 
+        controls = ttk.Frame(root, padding=(8, 2, 8, 4))
+        controls.pack(fill="x")
+        self.spoiler_var = tk.StringVar()
+        self.spoiler_box = ttk.Combobox(controls, textvariable=self.spoiler_var,
+                                        width=7, state="readonly")
+        self.spoiler_box.pack(side="left")
+        self.spoiler_box.bind("<<ComboboxSelected>>", self._switch_spoiler)
+        self.lang_var = tk.StringVar(
+            value="中文" if lexicon.get_language() == "zh" else "English")
+        lang_box = ttk.Combobox(controls, textvariable=self.lang_var, width=8,
+                                state="readonly", values=("中文", "English"))
+        lang_box.pack(side="left", padx=(8, 0))
+        lang_box.bind("<<ComboboxSelected>>", self._switch_language)
+        self._known_urgent: set[str] = set()
+        self.review_btn = ttk.Button(controls, command=self._open_review)
+        self.review_btn.pack(side="left", padx=(8, 0))
         self.topmost_var = tk.BooleanVar(value=True)
         self.topmost_btn = ttk.Checkbutton(
-            top, variable=self.topmost_var,
+            controls, variable=self.topmost_var,
             command=lambda: root.attributes("-topmost", self.topmost_var.get()))
         self.topmost_btn.pack(side="right")
         self.sound_var = tk.BooleanVar(value=bool(self.settings.get("sound", True)))
-        self.sound_btn = ttk.Checkbutton(top, variable=self.sound_var,
+        self.sound_btn = ttk.Checkbutton(controls, variable=self.sound_var,
                                          command=self._save_sound_setting)
-        self.sound_btn.pack(side="right")
-        self._known_urgent: set[str] = set()
-        self.review_btn = ttk.Button(top, command=self._open_review)
-        self.review_btn.pack(side="right", padx=(0, 8))
-        self.lang_var = tk.StringVar(
-            value="中文" if lexicon.get_language() == "zh" else "English")
-        lang_box = ttk.Combobox(top, textvariable=self.lang_var, width=8,
-                                state="readonly", values=("中文", "English"))
-        lang_box.pack(side="right", padx=(0, 8))
-        lang_box.bind("<<ComboboxSelected>>", self._switch_language)
-        self.spoiler_var = tk.StringVar()
-        self.spoiler_box = ttk.Combobox(top, textvariable=self.spoiler_var, width=7,
-                                        state="readonly")
-        self.spoiler_box.pack(side="right", padx=(0, 8))
-        self.spoiler_box.bind("<<ComboboxSelected>>", self._switch_spoiler)
+        self.sound_btn.pack(side="right", padx=(0, 8))
 
         self.season_var = tk.StringVar()
         self.season_label = ttk.Label(root, textvariable=self.season_var,
@@ -413,7 +418,7 @@ class AdvisorApp:
         text.pack(fill="both", expand=True, padx=8, pady=8)
 
     def _apply_language_chrome(self):
-        self.root.title(_t("title"))
+        self.root.title(f"{_t('title')} v{__version__}")
         self.topmost_btn.configure(text=_t("topmost"))
         self.review_btn.configure(text=_t("review"))
         self.filter_label.configure(text=_t("filter"))

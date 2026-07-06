@@ -85,6 +85,8 @@ TIMED_AFFLICTIONS = {
                      "Spend it on Painting or Passion; untreated it becomes Dread."),
     "hunger": ("入梦 + 1 资金恢复，拖延会永久损失健康。",
                "Dream with 1 Funds; delay costs permanent Health."),
+    "injury": ("入梦 + 1 资金或 1 活力治疗，超时会变成衰老（永久损失健康）。",
+               "Dream with 1 Funds or 1 Vitality; untreated it becomes Decrepitude (permanent Health loss)."),
 }
 
 # Cards that eventually decay INTO dread — they count as future counters for visions.
@@ -1076,6 +1078,100 @@ def _tagged(rule, state: GameState, out: list[Suggestion], level: int):
         s.spoiler = max(s.spoiler, level)
 
 
+# Glover & Glover career ladder: card on the table -> what to do with it.
+# Numbers follow docs/strategy_knowledge.md (community-verified).
+GLOVER_LADDER = {
+    "gloverandgloverjuniorjob": (
+        "初级职员薪水最低。作业时在旁边槽位加一张「理性」争取晋升为正式职员。",
+        "The junior post pays least. Slot a Reason alongside it at Work to earn promotion."),
+    "gloverandgloverjuniorjob_nodifficultbossa": (
+        "初级职员薪水最低。作业时在旁边槽位加一张「理性」争取晋升为正式职员。",
+        "The junior post pays least. Slot a Reason alongside it at Work to earn promotion."),
+    "gloverandgloverjob": (
+        "正式职员约 60 秒 1 资金；加「理性」可拿加班费，攒出「激情」后可再升高级职员。",
+        "The regular post pays ~1 Funds/60s; add Reason for overtime pay, and Passion "
+        "opens the senior promotion."),
+    "gloverandgloverjob_youngerglovergone": (
+        "正式职员约 60 秒 1 资金；加「理性」可拿加班费，攒出「激情」后可再升高级职员。",
+        "The regular post pays ~1 Funds/60s; add Reason for overtime pay, and Passion "
+        "opens the senior promotion."),
+    "gloverandgloverseniorjob": (
+        "高级职员约 70 秒 3 资金，是开局最稳的金饭碗；再往上的董事席位赚得多但会吸恶名。",
+        "The senior post pays ~3 Funds/70s — the steadiest early money. The board seat "
+        "above pays more but soaks up Notoriety."),
+    "gloverandglovertopjob": (
+        "董事席位约 50 秒 4 资金，但会自动吸收恶名——被董事会发现两次就会被开除。赚够就收手。",
+        "The board seat pays ~4 Funds/50s but soaks up Notoriety — twice discovered means "
+        "dismissal. Take the money and step back."),
+}
+
+
+def _opening_survival(state: GameState, out: list[Suggestion]):
+    """Survival-focused guidance for the early game, shared by every base
+    profession: income first, threats explained the first time they appear."""
+    q = lambda e: _qty_actionable(state, e)
+
+    # No income: name every road to money that the base attributes open.
+    has_job = any(has_aspect(s.entity_id, "job") for s in _tabletop_stacks(state))
+    if not has_job and stack_quantity(state, "funds") < 8:
+        routes_zh, routes_en = [], []
+        if q("reason"):
+            routes_zh.append("「理性」→作业＝找文书工作（格洛弗父子公司，之后能逐级升职）")
+            routes_en.append("Reason at Work = a clerk's job at Glover & Glover (promotable)")
+        if q("health"):
+            routes_zh.append("「健康」→作业＝做粗活（1 资金 + 1 活力，没有健康技能时约三成概率受伤）")
+            routes_en.append("Health at Work = labour (1 Funds + 1 Vitality; ~30% injury odds without a Health skill)")
+        if q("passion"):
+            routes_zh.append("「激情」→作业＝作画（产灵感，但会积累声名，招猎人）")
+            routes_en.append("Passion at Work = painting (Glimmering, but reputation piles up)")
+        if routes_zh:
+            out.append(Suggestion(108,
+                tr("生存第一课：先有收入", "Survival lesson one: income first"),
+                tr("时光每 60 秒抽走 1 资金，断粮就扣健康。现在能走的路："
+                   + "；".join(routes_zh) + "。",
+                   "Time drains 1 Funds every 60s; going broke costs Health. Roads open now: "
+                   + "; ".join(routes_en) + "."),
+                spoiler=SPOILER_GUIDE))
+
+    # Career ladder guidance for whichever Glover card is on the table.
+    for eid, (zh, en) in GLOVER_LADDER.items():
+        if q(eid):
+            out.append(Suggestion(72,
+                tr(f"职场：「{display_name(eid)}」", f"Career: {display_name(eid)}"),
+                tr(zh, en), spoiler=SPOILER_GUIDE))
+            break
+
+    # The bookshop is the engine of the whole early game.
+    if q("mapbookdealer"):
+        out.append(Suggestion(100,
+            tr(f"用「{display_name('explore')}」打开「{display_name('mapbookdealer')}」",
+               f"Explore {display_name('mapbookdealer')}"),
+            tr("找到莫兰书店：1 资金一本书，读书是属性碎片和秘传的主要来源。"
+               "（买空全店还有一份特别的回报。）",
+               "Morland's shop: one Funds per book, and books feed both attributes and lore. "
+               "(Emptying the whole shop earns something special.)"),
+            spoiler=SPOILER_GUIDE))
+
+    # First-threat lessons: teach the loop the first time a threat card shows,
+    # before the stockpile alarms (which start at 2) would fire.
+    if _is_opening(state):
+        if _threat_count(state, "dread", "despair") == 1:
+            out.append(Suggestion(62,
+                tr("第一张「恐惧」：现在处理最便宜", "Your first Dread: cheapest to handle now"),
+                tr("入梦 恐惧+安逸 可消掉；没有安逸就先放着——它 180 秒后自己腐朽。"
+                   "真正危险的是攒到 2 张以上撞上绝望时节。",
+                   "Dream Dread with Contentment to clear it; without one, let it rot (180s). "
+                   "The danger is 2+ meeting a Despair season."),
+                spoiler=SPOILER_GUIDE))
+        if _threat_count(state, "fascination", "visions") == 1:
+            out.append(Suggestion(62,
+                tr("第一张「入迷」：用恐惧对冲", "Your first Fascination: hedge with Dread"),
+                tr("入梦 入迷+恐惧 会换来更安全的一瞬追忆；入迷攒到 2 张以上撞上幻象时节才是绝路。",
+                   "Dream Fascination with Dread for a safer Fleeting Reminiscence; "
+                   "2+ meeting a Visions season is the real trap."),
+                spoiler=SPOILER_GUIDE))
+
+
 def _opening_rules(state: GameState, out: list[Suggestion]):
     legacy = state.active_legacy or ""
     canon = OPENING_ALIASES.get(legacy, legacy)
@@ -1084,6 +1180,8 @@ def _opening_rules(state: GameState, out: list[Suggestion]):
     guide = OPENING_GUIDES.get(canon)
     if guide:
         _tagged(guide, state, out, SPOILER_GUIDE)
+    if canon != "exile":
+        _tagged(_opening_survival, state, out, SPOILER_GUIDE)
     if canon != "exile" and _is_opening(state):
         out.append(Suggestion(55,
             tr("开局阶段目标：稳经济 → 升属性 → 攒秘传",

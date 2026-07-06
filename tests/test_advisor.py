@@ -659,3 +659,25 @@ def test_pause_detection_logic():
     assert f._likely_paused() and f._elapsed() == 0.0
     f.parsed_at, f.save_deadline = now - 300, 0.0  # no running verbs: no signal
     assert not f._likely_paused()
+
+
+def test_opening_survival_rules():
+    """Income-first lesson fires when jobless and poor; the Glover ladder and
+    first-threat lessons key off their cards."""
+    from cultist_adviser.advisor import advise as adv
+    jobless = state([verb("time", 40), card("reason"), card("health"),
+                     card("funds", qty=3)])
+    assert any(s.priority == 108 for s in adv(jobless, spoiler=1).suggestions)
+
+    employed = state([verb("time", 40), card("gloverandgloverjob"),
+                      card("funds", qty=3)])
+    sugg = adv(employed, spoiler=1).suggestions
+    assert not any(s.priority == 108 for s in sugg), "employed -> no income lesson"
+    assert any(s.priority == 72 for s in sugg), "ladder guidance for the job card"
+
+    first_dread = state([verb("time", 40), card("dread"), card("funds", qty=9),
+                         card("gloverandgloverjob")])
+    assert any(s.priority == 62 for s in adv(first_dread, spoiler=1).suggestions)
+    # at keeper tier the lessons stay hidden
+    assert not any(s.priority in (62, 72)
+                   for s in adv(first_dread, spoiler=0).suggestions)
