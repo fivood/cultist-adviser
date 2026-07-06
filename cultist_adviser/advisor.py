@@ -1838,6 +1838,32 @@ def _recruit_rules(state: GameState, out: list[Suggestion]):
             hint))
 
 
+def _exalt_rules(state: GameState, out: list[Suggestion]):
+    """Exaltation readiness: a Disciple whose aspect matches your cult can be
+    raised to the highest rank when Talk totals 12 of that aspect (the
+    Disciple's own levels count toward it)."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    levels = _lore_levels(state)
+    for s in _tabletop_stacks(state):
+        asp = element_aspects(s.entity_id)
+        if not asp.get("disciple") or asp.get("exalted"):
+            continue
+        aspect = next((a for a in LORE_KINDS if asp.get(a)), "")
+        if not aspect or not any(e.startswith(f"cult{aspect}") for e in ids):
+            continue
+        own = asp.get(aspect, 0)
+        need = max(0, 12 - own)
+        if levels.get(aspect, 0) >= need:
+            out.append(Suggestion(65,
+                tr(f"可以擢升「{display_name(s.entity_id)}」了",
+                   f"{display_name(s.entity_id)} is ready for exaltation"),
+                tr(f"「交谈」放入教团 + 门徒 + {ASPECT_ZH[aspect]}系秘传（含门徒自身共 12 阶，"
+                   f"可配同系工具）。擢升后是全游戏最强的手下。",
+                   f"Talk: cult + Disciple + {aspect} lore totalling 12 with the "
+                   "Disciple's own levels (a matching tool helps). Exalted "
+                   "followers are the strongest in the game.")))
+
+
 def _long_rules(state: GameState, out: list[Suggestion]):
     """A Long is scheming (the 'long' verb runs between attacks) — lay out the
     proactive counterplay from long_recipes_attacks.json: spy, delay, unmask."""
@@ -2018,6 +2044,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
     _tagged(_long_rules, state, out, SPOILER_GUIDE)
     _tagged(_recruit_rules, state, out, SPOILER_GUIDE)
+    _tagged(_exalt_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
     _achievement_rules(state, out)    # tags itself: guidance 1
