@@ -211,8 +211,14 @@ class AdvisorApp:
         self.spoiler_box.pack(side="right", padx=(0, 8))
         self.spoiler_box.bind("<<ComboboxSelected>>", self._switch_spoiler)
 
+        self.season_var = tk.StringVar()
+        self.season_label = ttk.Label(root, textvariable=self.season_var,
+                                      foreground="#666666", wraplength=520)
+        # packed lazily in _render the first time a season line exists
+
         nb = ttk.Panedwindow(root, orient="vertical")
         nb.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self._nb = nb
 
         self.sug_frame = ttk.Labelframe(nb, padding=4)
         self.sug_text = tk.Text(self.sug_frame, wrap="word", height=10, state="disabled",
@@ -475,6 +481,17 @@ class AdvisorApp:
     def _render(self):
         if not self.advice:
             return
+        if self.advice.season_line:
+            self.season_var.set(self.advice.season_line)
+            self.season_label.configure(
+                foreground="#c62828" if self.advice.season_danger else "#666666")
+            if not self.season_label.winfo_ismapped():
+                self.season_label.pack(fill="x", padx=10, pady=(0, 2),
+                                       before=self._nb)
+        else:
+            self.season_var.set("")
+            if self.season_label.winfo_ismapped():
+                self.season_label.pack_forget()
         self.sug_text.configure(state="normal")
         self.sug_text.delete("1.0", "end")
         if not self.advice.suggestions:

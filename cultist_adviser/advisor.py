@@ -168,6 +168,8 @@ class Advice:
     resources: list[ResourceRow] = field(default_factory=list)
     verbs: list[VerbRow] = field(default_factory=list)
     suggestions: list[Suggestion] = field(default_factory=list)
+    season_line: str = ""      # always-visible season timeline for the GUI
+    season_danger: bool = False  # next season arrives unprepared
 
 
 def _tabletop_stacks(state: GameState) -> list[ElementStack]:
@@ -1765,6 +1767,28 @@ LEGACY_RULES = {
 }
 
 
+def _season_timeline(state: GameState) -> str:
+    """One-line season forecast for the GUI status strip. The next season is
+    public (the card sits visibly in the Time verb); the rest of the pile is
+    hidden information gated by spoiler tier, mirroring _season_deck_rules."""
+    nxt, eta = _next_season(state)
+    if not nxt:
+        return ""
+    m, s = divmod(int(eta), 60)
+    line = tr(f"时节：{display_name(nxt)} {m}:{s:02d}",
+              f"Seasons: {display_name(nxt)} {m}:{s:02d}")
+    pile = state.draw_piles.get("seasonevents_draw")
+    if pile is None or _spoiler < SPOILER_GUIDE:
+        return line
+    if _spoiler < SPOILER_REVEAL:
+        return line + tr(f" → 剩 {len(pile)} 张", f" → {len(pile)} left")
+    if pile:
+        line += " → " + " → ".join(display_name(c) for c in pile)
+    else:
+        line += tr(" → 重洗", " → reshuffle")
+    return line
+
+
 def advise(state: GameState, spoiler: int = SPOILER_REVEAL) -> Advice:
     global _spoiler
     _spoiler = spoiler
@@ -1799,4 +1823,8 @@ def advise(state: GameState, spoiler: int = SPOILER_REVEAL) -> Advice:
                                                 "Everything is in motion; nothing to do right now.")))
 
     advice.suggestions.sort(key=lambda s: -s.priority)
+    advice.season_line = _season_timeline(state)
+    # The forecast rule marks an unprepared next season with an urgent 170.
+    advice.season_danger = any(s.priority == 170 and s.urgent
+                               for s in advice.suggestions)
     return advice

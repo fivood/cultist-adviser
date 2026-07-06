@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import LOG_DIR
-from .advisor import Advice
+from .advisor import Advice, _next_season
 
 RUN_GLOB = "run_*.jsonl"
 SESSION_GLOB = "session_*.jsonl"  # files from versions that recorded per GUI session
@@ -48,6 +48,16 @@ class SessionRecorder:
         ending = getattr(state, "ending_id", "") if state is not None else ""
         if ending:
             snap["ending"] = ending
+        # Season context for post-run analysis ("despair arrived at 12:40,
+        # no contentment for 3 minutes before it").
+        if state is not None and getattr(state, "tokens", None) is not None:
+            nxt, eta = _next_season(state)
+            if nxt:
+                snap["next_season"] = [nxt, round(eta, 1)]
+        if state is not None:
+            pile = getattr(state, "draw_piles", {}).get("seasonevents_draw")
+            if pile is not None:
+                snap["season_pile"] = list(pile)
         # Cumulative recipe counts: only write when they changed, to keep lines lean.
         recipes = getattr(state, "recipe_executions", None) if state is not None else None
         if recipes and recipes != self._last_recipes:

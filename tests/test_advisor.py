@@ -564,6 +564,30 @@ def test_startable_recipes_aspect_matching():
         km._recipes, km._el_aspects = orig
 
 
+def test_season_timeline_respects_spoiler_tiers():
+    """The status-strip line: next season is public at every tier; the pile
+    shows as a count at guide and full order at reveal."""
+    from cultist_adviser.advisor import advise as adv
+    from cultist_adviser.lexicon import display_name
+    piles = {"seasonevents_draw": ["seasonardours"]}
+    st = state([verb("time", 30),
+                card("seasondespair", sphere="~/tabletop!time_1/situationstoragesphere")],
+               draw_piles=piles)
+    nxt, hidden = display_name("seasondespair"), display_name("seasonardours")
+    keeper = adv(st, spoiler=0)
+    assert nxt in keeper.season_line and hidden not in keeper.season_line
+    guide = adv(st, spoiler=1)
+    assert nxt in guide.season_line and hidden not in guide.season_line
+    reveal = adv(st, spoiler=2)
+    assert nxt in reveal.season_line and hidden in reveal.season_line
+    # unprepared despair season flips the danger flag
+    hot = state([verb("time", 30), card("dread"),
+                 card("seasondespair", sphere="~/tabletop!time_1/situationstoragesphere")],
+                draw_piles=piles)
+    assert adv(hot, spoiler=1).season_danger
+    assert not adv(st, spoiler=1).season_danger
+
+
 def test_expiry_nag_follows_decay_outcome():
     """Harmless decay (-> benign card) silences the expiry nag; harmful decay
     (-> ill health) keeps it. Assert by priority, not localized text."""
