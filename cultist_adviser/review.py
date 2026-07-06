@@ -229,6 +229,74 @@ def _t(key: str) -> str:
     return zh if lexicon.get_language() == "zh" else en
 
 
+# Defeat attribution: ending id -> (threat card, counter cards, danger verb).
+_ATTRIBUTION = {
+    "despairending": ("dread", ("contentment",), "despair"),
+    "visionsending": ("fascination", ("dread", "fleeting"), "visions"),
+}
+
+
+def attribute_defeat(snaps: list[dict], ending_id: str) -> list[str]:
+    """Timeline bullets reconstructing HOW the run was lost, from the run's
+    own snapshots: when the threat piled up, how long you went without a
+    counter, when the countdown started. Empty for wins/unknown endings."""
+    if len(snaps) < 2:
+        return []
+    t0 = snaps[0]["t"]
+    zh = lexicon.get_language() == "zh"
+
+    def at(t):
+        m, s = divmod(int(t - t0), 60)
+        return f"{m}:{s:02d}"
+
+    lines: list[str] = []
+    if ending_id in _ATTRIBUTION:
+        threat, counters, verb = _ATTRIBUTION[ending_id]
+        tname = display_name(threat)
+        cname = "/".join(display_name(c) for c in counters)
+        piled = next((s for s in snaps
+                      if s["resources"].get(threat, 0) >= 2), None)
+        if piled:
+            n = piled["resources"].get(threat, 0)
+            lines.append(f"{at(piled['t'])}  {tname} 累计到 {n} 张" if zh
+                         else f"{at(piled['t'])}  {tname} piled up to {n}")
+            window = [s for s in snaps if s["t"] >= piled["t"]]
+            covered = sum(1 for s in window
+                          if any(s["resources"].get(c, 0) for c in counters))
+            if covered == 0:
+                lines.append(f"此后直到结局，场上始终没有{cname}" if zh
+                             else f"From then to the end, no {cname} ever reached the table")
+            else:
+                pct = round(100 * covered / len(window))
+                lines.append(f"此后场上只有 {pct}% 的时间备有{cname}" if zh
+                             else f"A counter ({cname}) was on the table only {pct}% of the time after that")
+        onset = next((s for s in snaps
+                      if any(v[0] == verb and v[2] > 0 for v in s["verbs"])), None)
+        if onset:
+            lines.append(f"{at(onset['t'])}  死亡倒计时开始" if zh
+                         else f"{at(onset['t'])}  the death countdown began")
+    elif ending_id == "arrest":
+        for eid, zh_w, en_w in (("evidence", "不确凿证据出现", "tentative evidence appeared"),
+                                ("evidenceb", "确凿证据出现", "damning evidence appeared")):
+            hit = next((s for s in snaps if s["resources"].get(eid, 0)), None)
+            if hit:
+                lines.append(f"{at(hit['t'])}  {zh_w}" if zh
+                             else f"{at(hit['t'])}  {en_w}")
+    elif ending_id == "deathofthebody":
+        broke = next((s for s in snaps
+                      if not s["resources"].get("funds", 0)), None)
+        if broke:
+            window = [s for s in snaps if s["t"] >= broke["t"]]
+            dry = sum(1 for s in window if not s["resources"].get("funds", 0))
+            pct = round(100 * dry / len(window))
+            lines.append(f"{at(broke['t'])}  资金首次归零，此后 {pct}% 的时间处于断粮" if zh
+                         else f"{at(broke['t'])}  funds first hit zero; broke {pct}% of the time after")
+    if lines:
+        lines.append(f"{at(snaps[-1]['t'])}  局终" if zh
+                     else f"{at(snaps[-1]['t'])}  the run ended")
+    return lines
+
+
 def extract_events(snaps: list[dict]) -> list[dict]:
     """Diff consecutive snapshots into (t, kind, payload) events."""
     events = []
@@ -472,6 +540,10 @@ class ReviewWindow:
                        if sn.get("ending")), "")
         if ending:
             text, is_win = ending_lesson(ending)
+            if not is_win:
+                trail = attribute_defeat(self.snaps, ending)
+                if trail:
+                    text += "\n" + "\n".join("· " + ln for ln in trail)
             self.analysis_var.set(("🏆 " if is_win else "💀 ") + text)
             self.analysis_label.configure(fg="#2e7d32" if is_win else "#8c1f1f")
         else:

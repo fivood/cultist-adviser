@@ -542,8 +542,10 @@ def test_startable_recipes_aspect_matching():
          "req": {"heart": 1}, "neg": {}, "eff": {}},
     ]
     aspects = {"contentment": {"heart": 2}, "health": {"heart": 1}, "dread": {"edge": 1}}
-    orig = km._recipes, km._el_aspects
+    orig = km._recipes, km._el_aspects, km._verb_slots, km._el_slots
+    # neutralize slot constraints — aspect semantics are under test here
     km._recipes, km._el_aspects = recipes, aspects
+    km._verb_slots, km._el_slots = {}, {}
     try:
         hits = km.startable_recipes("study", {"contentment": 2})
         assert [m["recipe"]["id"] for m in hits] == ["r_heart"]
@@ -561,7 +563,37 @@ def test_startable_recipes_aspect_matching():
                         "neg": {"dread": -1}, "eff": {}}]
         assert not km.startable_recipes("dream", {"health": 1, "dread": 1})
     finally:
-        km._recipes, km._el_aspects = orig
+        km._recipes, km._el_aspects, km._verb_slots, km._el_slots = orig
+
+
+def test_startable_recipes_slot_simulation():
+    """Slot-level check: the pivot must fit the verb's primary slot, extra
+    cards need slots opened by placed cards, and same-name copies stack."""
+    from cultist_adviser import knowledge as km
+    recipes = [
+        {"id": "r_subvert", "action": "study", "craftable": True, "hint": False,
+         "req": {"lore": 1, "heart": 4}, "neg": {}, "eff": {}},
+        {"id": "r_heartonly", "action": "study", "craftable": True, "hint": False,
+         "req": {"heart": 4}, "neg": {}, "eff": {}},
+    ]
+    aspects = {"fakelore": {"lore": 1}, "fakeinf": {"influence": 1, "heart": 2}}
+    verb_slots = {"study": [{"req": {"lore": 1}, "forb": {}}]}
+    el_slots = {"fakelore": [{"action": "study",
+                              "req": {"influence": 1}, "forb": {}}]}
+    orig = km._recipes, km._el_aspects, km._verb_slots, km._el_slots
+    km._recipes, km._el_aspects = recipes, aspects
+    km._verb_slots, km._el_slots = verb_slots, el_slots
+    try:
+        # pivot lore opens an influence slot; two influences stack to heart 4
+        hits = km.startable_recipes("study", {"fakelore": 1, "fakeinf": 2})
+        assert any(m["recipe"]["id"] == "r_subvert" for m in hits)
+        sub = next(m for m in hits if m["recipe"]["id"] == "r_subvert")
+        assert sub["chosen"] == {"fakelore": 1, "fakeinf": 2}
+        # aggregate would pass heart 4, but no pivot fits the lore-only
+        # primary slot -> the false positive is dropped
+        assert not km.startable_recipes("study", {"fakeinf": 2})
+    finally:
+        km._recipes, km._el_aspects, km._verb_slots, km._el_slots = orig
 
 
 def test_season_timeline_respects_spoiler_tiers():

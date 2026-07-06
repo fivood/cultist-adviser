@@ -22,17 +22,61 @@ _uses: dict[str, list[int]] = {}    # element id -> recipes that take it as inpu
 _el_aspects: dict[str, dict] = {}   # element id -> {aspect: value}
 _decays: dict[str, str] = {}        # element id -> what it decays into
 _lifetimes: dict[str, int] = {}     # element id -> natural lifetime in seconds
+_verb_slots: dict[str, list] = {}   # verb id -> ordered primary slot specs
+_el_slots: dict[str, list] = {}     # element id -> slots it opens, per action
 _vaults: dict[str, list[str]] = {}  # expedition site -> obstacle element ids
 _counters: dict[str, list[str]] = {}  # obstacle -> lore aspects that beat it
 
 
-def _parse_elements() -> tuple[dict, dict, dict]:
+def _norm_slot(s: dict) -> dict:
+    req, forb = {}, {}
+    for k, v in (s.get("required") or {}).items():
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            req[str(k).lower()] = n
+    for k in (s.get("forbidden") or {}):
+        forb[str(k).lower()] = 1
+    return {"req": req, "forb": forb}
+
+
+def _parse_verb_slots() -> dict:
+    slots: dict[str, list] = {}
+    folder = CONTENT_DIR / "core" / "verbs"
+    if not folder.is_dir():
+        return slots
+    for path in folder.glob("*.json"):
+        try:
+            data = _lenient_json(path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        for value in data.values():
+            if not isinstance(value, list):
+                continue
+            for v in value:
+                if not isinstance(v, dict) or not v.get("id"):
+                    continue
+                specs = []
+                if isinstance(v.get("slot"), dict):
+                    specs.append(_norm_slot(v["slot"]))
+                for s in v.get("slots") or []:
+                    if isinstance(s, dict):
+                        specs.append(_norm_slot(s))
+                if specs:
+                    slots[str(v["id"]).lower()] = specs
+    return slots
+
+
+def _parse_elements() -> tuple[dict, dict, dict, dict]:
     aspects: dict[str, dict] = {}
     decays: dict[str, str] = {}
     lifetimes: dict[str, int] = {}
+    _element_slots_out: dict[str, list] = {}
     folder = CONTENT_DIR / "core" / "elements"
     if not folder.is_dir():
-        return aspects, decays, lifetimes
+        return aspects, decays, lifetimes, _element_slots_out
     for path in folder.glob("*.json"):
         try:
             data = _lenient_json(path.read_text(encoding="utf-8-sig"))
@@ -52,6 +96,15 @@ def _parse_elements() -> tuple[dict, dict, dict]:
                     except (TypeError, ValueError):
                         continue
                 aspects[eid] = asp
+                el_slots = []
+                for s in e.get("slots") or []:
+                    if isinstance(s, dict):
+                        spec = _norm_slot(s)
+                        spec["action"] = str(s.get("actionId")
+                                             or s.get("actionid") or "").lower()
+                        el_slots.append(spec)
+                if el_slots:
+                    _element_slots_out[eid] = el_slots
                 if e.get("decayTo"):
                     decays[eid] = str(e["decayTo"]).lower()
                 try:
@@ -60,7 +113,7 @@ def _parse_elements() -> tuple[dict, dict, dict]:
                     life = 0
                 if life > 0:
                     lifetimes[eid] = life
-    return aspects, decays, lifetimes
+    return aspects, decays, lifetimes, _element_slots_out
 
 
 def _parse_expeditions() -> tuple[dict, dict]:
@@ -101,15 +154,16 @@ def _parse_expeditions() -> tuple[dict, dict]:
 
 def _load():
     global _recipes, _obtain, _uses, _el_aspects, _vaults, _counters
-    global _decays, _lifetimes
+    global _decays, _lifetimes, _verb_slots, _el_slots
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-            if cache.get("v") != 3:
+            if cache.get("v") != 4:
                 raise KeyError("stale cache format")
             _recipes, _obtain = cache["recipes"], cache["obtain"]
             _el_aspects = cache["aspects"]
             _decays, _lifetimes = cache["decays"], cache["lifetimes"]
+            _verb_slots, _el_slots = cache["verb_slots"], cache["el_slots"]
             _vaults, _counters = cache["vaults"], cache["counters"]
             _uses = cache["uses"]
             return  # KeyError on caches from older versions -> rebuild below
@@ -166,16 +220,19 @@ def _load():
         for eid in r["req"]:
             uses.setdefault(eid, []).append(i)
     _recipes, _obtain, _uses = recipes, obtain, uses
-    _el_aspects, _decays, _lifetimes = _parse_elements()
+    _el_aspects, _decays, _lifetimes, _el_slots = _parse_elements()
+    _verb_slots = _parse_verb_slots()
     _vaults, _counters = _parse_expeditions()
     if recipes:
         try:
-            CACHE_PATH.write_text(json.dumps({"v": 3,
+            CACHE_PATH.write_text(json.dumps({"v": 4,
                                               "recipes": recipes, "obtain": obtain,
                                               "uses": uses,
                                               "aspects": _el_aspects,
                                               "decays": _decays,
                                               "lifetimes": _lifetimes,
+                                              "verb_slots": _verb_slots,
+                                              "el_slots": _el_slots,
                                               "vaults": _vaults,
                                               "counters": _counters},
                                              ensure_ascii=False), encoding="utf-8")
@@ -310,10 +367,96 @@ def _match_requirements(req: dict, neg: dict, cards: dict) -> dict | None:
     return chosen
 
 
+def _fits_slot(entity_id: str, spec: dict) -> bool:
+    """Engine semantics (SphereSpec.CheckPayloadAllowedHere): per-unit aspects,
+    any forbidden aspect present blocks, empty required passes, otherwise ANY
+    single required aspect at its value qualifies."""
+    unit = _unit_aspects(entity_id)
+    if any(unit.get(k, 0) > 0 for k in spec["forb"]):
+        return False
+    req = spec["req"]
+    if not req:
+        return True
+    return any(unit.get(k, 0) >= v for k, v in req.items())
+
+
+def _slots_opened_by(entity_id: str, action: str) -> list[dict]:
+    return [s for s in _el_slots.get(entity_id.lower(), [])
+            if s.get("action") in (action, "")]
+
+
+def _useful_units(entity_id: str, avail: int, need: dict) -> int:
+    """Same-name cards merge into one stack in a slot, multiplying aspects —
+    how many copies are worth stacking against the remaining need."""
+    unit = _unit_aspects(entity_id)
+    want = 1
+    for k, v in need.items():
+        u = unit.get(k, 0)
+        if u > 0:
+            want = max(want, -(-v // u))
+    return min(avail, want)
+
+
+def _slot_sim(req: dict, neg: dict, action: str, cards: dict) -> dict | None:
+    """Simulate actually slotting cards: a pivot goes into the verb's primary
+    slot, recursively opening the slots its element defines for this verb;
+    each slot takes one stack. Returns placed cards or None."""
+    primaries = _verb_slots.get(action) or [{"req": {}, "forb": {}}]
+
+    def apply(placed, agg, need, eid, units):
+        placed[eid] = placed.get(eid, 0) + units
+        unit = _unit_aspects(eid)
+        for k, v in unit.items():
+            agg[k] = agg.get(k, 0) + v * units
+        for k in list(need):  # need holds REMAINING amounts
+            rest = req[k] - agg.get(k, 0)
+            if rest <= 0:
+                del need[k]
+            else:
+                need[k] = rest
+
+    def pivot_rank(eid):
+        unit = _unit_aspects(eid)
+        gain = sum(min(unit.get(k, 0), v) for k, v in req.items())
+        return (-gain, -len(_slots_opened_by(eid, action)))
+
+    pivots = sorted((e for e in cards if _fits_slot(e, primaries[0])),
+                    key=pivot_rank)[:12]
+    for pivot in pivots:
+        placed: dict[str, int] = {}
+        agg: dict[str, int] = {}
+        need = dict(req)
+        apply(placed, agg, need, pivot, _useful_units(pivot, cards[pivot], need))
+        queue = [dict(s) for s in primaries[1:]] + _slots_opened_by(pivot, action)
+        steps = 0
+        while queue and need and steps < 8:
+            spec = queue.pop(0)
+            steps += 1
+            best, best_gain = None, 0
+            for eid, qty in cards.items():
+                avail = qty - placed.get(eid, 0)
+                if avail <= 0 or not _fits_slot(eid, spec):
+                    continue
+                unit = _unit_aspects(eid)
+                gain = sum(min(unit.get(k, 0), rest)
+                           for k, rest in need.items())
+                if gain > best_gain:
+                    best_gain, best = gain, eid
+            if best is None:
+                continue
+            avail = cards[best] - placed.get(best, 0)
+            apply(placed, agg, need, best, _useful_units(best, avail, need))
+            queue.extend(_slots_opened_by(best, action))
+        if not need and all(agg.get(k, 0) < -v for k, v in neg.items()):
+            return placed
+    return None
+
+
 def startable_recipes(action: str, cards: dict, limit: int = 6) -> list[dict]:
     """Craftable recipes of a verb whose requirements the given tabletop cards
-    (eid -> quantity) can plausibly satisfy. Returns [{recipe, chosen}] ranked
-    most-specific first; deduped by requirement signature."""
+    (eid -> quantity) can satisfy — first a cheap aggregate feasibility check,
+    then a slot-level simulation so combinations that can't physically co-slot
+    are dropped. Returns [{recipe, chosen}] ranked most-specific first."""
     matches, seen = [], set()
     for r in _recipes:
         if r["action"] != action or not r["craftable"] or r.get("hint"):
@@ -321,11 +464,13 @@ def startable_recipes(action: str, cards: dict, limit: int = 6) -> list[dict]:
         sig = (tuple(sorted(r["req"].items())), tuple(sorted(r.get("neg", {}).items())))
         if sig in seen:
             continue
-        chosen = _match_requirements(r["req"], r.get("neg", {}), cards)
-        if chosen is None:
+        if _match_requirements(r["req"], r.get("neg", {}), cards) is None:
+            continue
+        placed = _slot_sim(r["req"], r.get("neg", {}), action, cards)
+        if placed is None:
             continue
         seen.add(sig)
-        matches.append({"recipe": r, "chosen": chosen})
+        matches.append({"recipe": r, "chosen": placed})
     matches.sort(key=lambda m: -len(m["recipe"]["req"]))
     return matches[:limit]
 

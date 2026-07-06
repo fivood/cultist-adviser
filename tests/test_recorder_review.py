@@ -137,3 +137,43 @@ def test_extract_events_verb_start_and_ending():
     assert any(e["kind"] == "gain" and e["id"] == "funds" for e in events)
     # the time verb must never spam the history
     assert not any(e.get("id") == "time" for e in events if e["kind"] == "verb_start")
+
+
+def test_attribute_defeat_despair_timeline():
+    from cultist_adviser.review import attribute_defeat
+    snaps = [
+        {"t": 0.0, "resources": {"funds": 3}, "verbs": [["time", "", 30]], "urgent": []},
+        {"t": 120.0, "resources": {"dread": 2}, "verbs": [["time", "", 20]], "urgent": []},
+        {"t": 240.0, "resources": {"dread": 2},
+         "verbs": [["despair", "despairactive", 55], ["time", "", 10]], "urgent": ["x"]},
+        {"t": 300.0, "resources": {}, "verbs": [], "urgent": [], "ending": "despairending"},
+    ]
+    lines = attribute_defeat(snaps, "despairending")
+    # threat pile-up at 2:00, countdown onset at 4:00, run end at 5:00
+    assert any("2:00" in ln for ln in lines)
+    assert any("4:00" in ln for ln in lines)
+    assert "5:00" in lines[-1]
+    # no contentment ever appeared -> the shortage line is present
+    assert len(lines) == 4
+
+    # a win or unknown ending produces no attribution
+    assert attribute_defeat(snaps, "minorforgevictory") == []
+
+
+def test_attribute_defeat_starvation_and_arrest():
+    from cultist_adviser.review import attribute_defeat
+    snaps = [
+        {"t": 0.0, "resources": {"funds": 1}, "verbs": [], "urgent": []},
+        {"t": 60.0, "resources": {}, "verbs": [], "urgent": []},
+        {"t": 120.0, "resources": {}, "verbs": [], "urgent": []},
+    ]
+    lines = attribute_defeat(snaps, "deathofthebody")
+    assert lines and "1:00" in lines[0] and "100" in lines[0]
+
+    snaps = [
+        {"t": 0.0, "resources": {}, "verbs": [], "urgent": []},
+        {"t": 90.0, "resources": {"evidence": 1}, "verbs": [], "urgent": []},
+        {"t": 200.0, "resources": {"evidenceb": 1}, "verbs": [], "urgent": []},
+    ]
+    lines = attribute_defeat(snaps, "arrest")
+    assert len(lines) == 3  # tentative, damning, end
