@@ -544,6 +544,35 @@ def obstacle_counters(obstacle_id: str) -> list[str]:
     return _counters.get(obstacle_id.lower(), [])
 
 
+def use_hint(entity_id: str, available: set | None = None) -> str:
+    """Best craftable recipe consuming this card, as a one-line hint — the
+    'so WHAT do I do with it' counterpart of obtain_hint. Prefers recipes
+    whose other ingredients are already on the table."""
+    eid = entity_id.lower()
+    avail = {a.lower() for a in available} if available else set()
+    best = None
+    for i in _uses.get(eid, []):
+        r = _recipes[i]
+        if not r["craftable"] or r.get("hint"):
+            continue
+        missing = sum(1 for k in r["req"] if k != eid and k not in avail)
+        # Among payable recipes prefer the one consuming MORE of what's on
+        # the table (pairing Fleeting with a live Fascination beats a solo
+        # use), then the simpler one.
+        mates_used = sum(1 for k in r["req"] if k != eid and k in avail)
+        key = (missing, -mates_used, len(r["req"]))
+        if best is None or key < best[0]:
+            best = (key, r)
+    if best is None:
+        return ""
+    r = best[1]
+    others = [display_name(k) for k in r["req"] if k != eid]
+    mates = ("，配 " + " + ".join(others)) if others else ""
+    mates_en = (" with " + " + ".join(others)) if others else ""
+    return tr(f"用法：放入「{display_name(r['action'])}」{mates}（{recipe_name(r['id'])}）。",
+              f"Use: {display_name(r['action'])}{mates_en} ({recipe_name(r['id'])}).")
+
+
 def obtain_hint(entity_id: str, available: set | None = None) -> str:
     """Best craftable way, as a one-line hint for suggestions."""
     craftable = [r for r in _ranked_ways(entity_id, available) if r["craftable"]]

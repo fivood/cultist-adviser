@@ -655,7 +655,7 @@ def test_pause_detection_logic():
     now = time.time()
     f.parsed_at, f.save_deadline = now - 10, 40.0
     assert not f._likely_paused() and 9 < f._elapsed() < 11
-    f.parsed_at = now - 50  # deadline (40) + slack (5) blown
+    f.parsed_at = now - (40 + gui.PAUSE_SLACK + 2)  # deadline + slack blown
     assert f._likely_paused() and f._elapsed() == 0.0
     f.parsed_at, f.save_deadline = now - 300, 0.0  # no running verbs: no signal
     assert not f._likely_paused()
@@ -681,3 +681,37 @@ def test_opening_survival_rules():
     # at keeper tier the lessons stay hidden
     assert not any(s.priority in (62, 72)
                    for s in adv(first_dread, spoiler=0).suggestions)
+
+
+def test_income_lesson_is_profession_aware():
+    """DLC legacies skip the generic income lesson; detective gets its
+    casework lead-in."""
+    from cultist_adviser.advisor import advise as adv
+    broke = [verb("time", 40), card("reason"), card("funds", qty=3)]
+    assert any(s.priority == 108
+               for s in adv(state(broke, legacy="detective"), spoiler=1).suggestions)
+    assert not any(s.priority == 108
+                   for s in adv(state(broke, legacy="dancer"), spoiler=1).suggestions)
+
+
+def test_use_hint_prefers_pairing_with_live_cards():
+    from cultist_adviser import knowledge as km
+    recipes = [
+        {"id": "solo", "action": "explore", "craftable": True, "hint": False,
+         "req": {"fleeting": 1}, "neg": {}, "eff": {}},
+        {"id": "pair", "action": "dream", "craftable": True, "hint": False,
+         "req": {"fleeting": 1, "fascination": 1}, "neg": {}, "eff": {}},
+    ]
+    uses = {}
+    for i, r in enumerate(recipes):
+        for k in r["req"]:
+            uses.setdefault(k, []).append(i)
+    orig = km._recipes, km._uses
+    km._recipes, km._uses = recipes, uses
+    try:
+        with_mate = km.use_hint("fleeting", {"fleeting", "fascination"})
+        alone = km.use_hint("fleeting", {"fleeting"})
+        assert "pair" in with_mate or "dream" in with_mate.lower() or "入梦" in with_mate
+        assert "solo" in alone or "explore" in alone.lower() or "探索" in alone
+    finally:
+        km._recipes, km._uses = orig

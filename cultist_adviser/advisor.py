@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from .save_parser import GameState, ElementStack, Situation, stack_quantity, find_situations
 from .lexicon import display_name, recipe_name, situation_name, tr, get_language
-from .knowledge import (obtain_hint, has_aspect, element_aspects,
+from .knowledge import (obtain_hint, use_hint, has_aspect, element_aspects,
                         vault_obstacles, obstacle_counters, startable_lines,
                         decays_to, decay_is_bad)
 from . import achievements as ach
@@ -593,15 +593,36 @@ def _hunter_rules(state: GameState, out: list[Suggestion]):
     ))
 
 
+# What each timed affliction's cure consumes; when the player has none of
+# these, the tip should also explain how to GET the cure material.
+AFFLICTION_CURES = {
+    "affliction": ("funds", "vitality"),
+    "injury": ("funds", "vitality"),
+    "hunger": ("funds",),
+}
+
+
 def _affliction_rules(state: GameState, out: list[Suggestion]):
     for eid, (zh_fix, en_fix) in TIMED_AFFLICTIONS.items():
         for s in _tabletop_stacks(state):
             if s.entity_id == eid:
+                detail = tr(zh_fix, en_fix)
+                cures = AFFLICTION_CURES.get(eid, ())
+                if cures and not any(stack_quantity(state, c) for c in cures):
+                    # No cure material on the table — say where it comes from.
+                    hint = obtain_hint(cures[-1], _available(state))
+                    if hint:
+                        detail += tr(f"目前两样都没有。「{display_name(cures[-1])}」",
+                                     f" You hold neither. {display_name(cures[-1])}: ") \
+                            if len(cures) > 1 else \
+                            tr(f"目前没有「{display_name(cures[0])}」。",
+                               f" You hold no {display_name(cures[0])}. ")
+                        detail += hint
                 out.append(Suggestion(
                     priority=140,
                     title=tr(f"「{display_name(eid)}」在场（约 {s.lifetime_remaining:.0f} 秒后恶化）",
                              f"{display_name(eid)} on the table (worsens in ~{s.lifetime_remaining:.0f}s)"),
-                    detail=tr(zh_fix, en_fix),
+                    detail=detail,
                     urgent=s.lifetime_remaining <= 30,
                 ))
 
@@ -671,6 +692,9 @@ def _generic_rules(state: GameState, out: list[Suggestion]):
             title = tr(f"{head} 即将消失（最快约 {soonest:.0f} 秒）",
                        f"{head} expiring (soonest ~{soonest:.0f}s)")
             detail = tr("尽快使用，否则会腐朽/消散。", "Use it before it decays.")
+        hint = use_hint(eid, _available(state))
+        if hint:
+            detail += tr("", " ") + hint
         out.append(Suggestion(
             priority=150 if soonest <= 20 else 80,
             title=title, detail=detail,
@@ -1106,14 +1130,29 @@ GLOVER_LADDER = {
 }
 
 
-def _opening_survival(state: GameState, out: list[Suggestion]):
-    """Survival-focused guidance for the early game, shared by every base
-    profession: income first, threats explained the first time they appear."""
+# Per-profession lead line for the income lesson — each legacy loses its job
+# a different way, and the fallback roads mean different things to each.
+INCOME_LEADS = {
+    "aspirant": ("", ""),
+    "detective": ("「破案」才是你的主业（案件 + 理性 → 结案拿钱），以下是后备路：",
+                  "Casework is your trade (case + Reason = payout); fallbacks: "),
+    "physician": ("研究所的轮班丢了？优先想办法找回稳定职位，过渡期可走：",
+                  "Lost the Institute shifts? Get steady work back first; meanwhile: "),
+    "byt": ("挥霍的生活费终会断供，趁现在建立自己的收入：",
+            "The allowance will end — build your own income now: "),
+}
+
+
+def _opening_survival(state: GameState, out: list[Suggestion], canon: str = "aspirant"):
+    """Survival-focused guidance for the early game: income first, threats
+    explained the first time they appear. The income lesson is tailored per
+    profession; DLC legacies skip it (their opening guides cover income)."""
     q = lambda e: _qty_actionable(state, e)
 
     # No income: name every road to money that the base attributes open.
     has_job = any(has_aspect(s.entity_id, "job") for s in _tabletop_stacks(state))
-    if not has_job and stack_quantity(state, "funds") < 8:
+    if not has_job and stack_quantity(state, "funds") < 8 and canon in INCOME_LEADS:
+        lead_zh, lead_en = INCOME_LEADS[canon]
         routes_zh, routes_en = [], []
         if q("reason"):
             routes_zh.append("「理性」→作业＝找文书工作（格洛弗父子公司，之后能逐级升职）")
@@ -1127,9 +1166,10 @@ def _opening_survival(state: GameState, out: list[Suggestion]):
         if routes_zh:
             out.append(Suggestion(108,
                 tr("生存第一课：先有收入", "Survival lesson one: income first"),
-                tr("时光每 60 秒抽走 1 资金，断粮就扣健康。现在能走的路："
+                tr("时光每 60 秒抽走 1 资金，断粮就扣健康。" + lead_zh
                    + "；".join(routes_zh) + "。",
-                   "Time drains 1 Funds every 60s; going broke costs Health. Roads open now: "
+                   "Time drains 1 Funds every 60s; going broke costs Health. "
+                   + (lead_en or "Roads open now: ")
                    + "; ".join(routes_en) + "."),
                 spoiler=SPOILER_GUIDE))
 
@@ -1181,7 +1221,7 @@ def _opening_rules(state: GameState, out: list[Suggestion]):
     if guide:
         _tagged(guide, state, out, SPOILER_GUIDE)
     if canon != "exile":
-        _tagged(_opening_survival, state, out, SPOILER_GUIDE)
+        _tagged(lambda st, o: _opening_survival(st, o, canon), state, out, SPOILER_GUIDE)
     if canon != "exile" and _is_opening(state):
         out.append(Suggestion(55,
             tr("开局阶段目标：稳经济 → 升属性 → 攒秘传",

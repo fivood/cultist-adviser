@@ -56,7 +56,7 @@ REDRAW_MS = 1000  # countdown re-render
 # it completes, so the smallest verb timer is a deadline for the next save
 # (the time verb keeps it <= 60s). If that deadline passes with no new save,
 # the game must be paused — freeze countdowns at the save's own values.
-PAUSE_SLACK = 5.0  # seconds past the deadline before we assume a pause
+PAUSE_SLACK = 10.0  # seconds past the deadline before we assume a pause
 
 UI = {
     "title": ("密教军师", "Cultist Advisor"),
@@ -467,9 +467,19 @@ class AdvisorApp:
                 self.save_sig = sig  # commit only after a clean parse
                 self.parsed_at = time.time()
                 self.parsed_at_str = time.strftime("%H:%M:%S")
+                # Only the time verb reliably writes a save when it completes;
+                # shorter verbs may finish without saving (uncollected results),
+                # which used to trigger false "paused" states mid-play.
                 running = [v.time_remaining for v in self.advice.verbs
                            if v.time_remaining > 0]
-                self.save_deadline = min(running) if running else 0.0
+                ticking = [v.time_remaining for v in self.advice.verbs
+                           if v.time_remaining > 0 and v.verb_id.startswith("time")]
+                if ticking:
+                    self.save_deadline = min(ticking)
+                elif running:
+                    self.save_deadline = max(running)
+                else:
+                    self.save_deadline = 0.0
                 self.was_paused = False
                 try:
                     self.recorder.record(self.advice, self.state)
