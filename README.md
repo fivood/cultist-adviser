@@ -77,15 +77,19 @@ stockpile alerts soften automatically once Despair/Visions are exhausted
 this cycle. At Revelation tier it goes further: **the exact order of the
 remaining seasons with arrival estimates**. The pile's stored order *is*
 the draw order (the engine shuffles only on refill), so this is prophecy,
-not probability — "two more Despairs, in ~4 and ~5 minutes".
+not probability — "two more Despairs, in ~4 and ~5 minutes". An
+**always-visible season strip** sits under the top bar and turns red when
+the next season arrives without a counter ready.
 
-**Recipe scanner ("what can I start right now")** — matches the recipe
-library live using the engine's aspect semantics: every card contributes
-its own id plus all aspects, aggregated against recipe requirements,
-negative (forbidden) requirements included. Idle-verb suggestions list
-"ingredients ready" recipes with the exact cards to use (it knows two
-Contentments add up to Heart 4); **double-click a verb row** for the full
-startable list.
+**Recipe scanner ("what can I start right now")** — simulates actual
+slotting per the engine's `SphereSpec.cs`: the pivot card must fit the
+verb's primary slot (any one required aspect at value qualifies, any
+forbidden aspect blocks, per-unit aspects), placed cards recursively open
+the slots their elements define, and same-name copies stack in a single
+slot with aspects multiplied (that's how "Contentment ×2 = Heart 4" is
+actually formed in-game). Idle-verb suggestions list "ingredients ready"
+recipes with the exact cards to use; **double-click a verb row** for the
+full startable list.
 
 **Decay chains** — decay targets read from game data: timed cards are
 labeled with where their countdown leads ("Restlessness → Dread"), so you
@@ -123,6 +127,10 @@ it instead of alt-tabbing to a wiki.
 in plain words with prevention notes for next time. All 63 endings defined
 by the game have bespoke epilogues (21 marriage endings, standard
 ascensions, DLC lines) — turning "died again" into "learned something".
+Despair/Visions/arrest/starvation losses also get a **timeline attribution
+from this run's own snapshots**: when the threat piled up, how long the
+counter was missing, when the countdown began — a chain that shows
+exactly how you lost.
 
 **Books & languages counsel** — unreadable books grouped by language with
 ways to get the scholar card; bookshop stock and textbooks on sale (empty
@@ -156,7 +164,10 @@ are marked blue and never nagged about.
 **Tiered suggestion panel** — ⚠ urgent / ● advice / ○ intel, visually
 distinct; crises always on top, background intel resting quietly below.
 Optional alert sound: a system beep whenever a new urgent alert appears
-(hear the crisis without watching the window in fullscreen).
+(hear the crisis without watching the window in fullscreen). **Right-click
+any non-urgent suggestion to mute it** — identity is priority plus the
+title with digits masked, so a ticking countdown won't resurrect a muted
+line but a real board change will. Urgent alerts cannot be muted.
 
 **Live refresh** — detects changes by reading save content, not file
 timestamps (Windows delays timestamp updates, which used to require

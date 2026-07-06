@@ -1,4 +1,4 @@
-密教军师 · Cultist Adviser  v0.5.0
+密教军师 · Cultist Adviser  v0.6.0
 ====================================
 
 《密教模拟器》(Cultist Simulator) 的只读建议悬浮窗。
