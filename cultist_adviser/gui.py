@@ -5,6 +5,7 @@ Read-only — never touches the game window; you play, it advises.
 Card/verb names come from the game's own localization (中文/English toggle).
 """
 import json
+import re
 import time
 import zlib
 import tkinter as tk
@@ -63,7 +64,8 @@ UI = {
     "no_save": ("找不到存档：", "Save not found: "),
     "parse_fail": ("存档解析失败：", "Failed to parse save: "),
     "updated": ("更新于", "updated"),
-    "suggestions": ("操作建议", "Suggestions"),
+    "suggestions": ("操作建议（右键单条可忽略）", "Suggestions (right-click one to mute)"),
+    "dismissed": ("已忽略 {} 条 · 点击恢复", "{} muted · click to restore"),
     "none": ("暂无建议。", "Nothing to suggest."),
     "verbs": ("进行中的行动", "Actions in progress"),
     "verb": ("行动", "Action"),
@@ -118,6 +120,12 @@ UI = {
 
 # Suggestions below this priority are background information, not calls to act.
 INFO_PRIORITY = 40
+
+
+def _sug_key(s) -> tuple:
+    """Stable identity for muting: priority + title with numbers masked, so a
+    ticking countdown in the title doesn't resurrect a muted suggestion."""
+    return (s.priority, re.sub(r"\d+", "#", s.title))
 
 # ------------------------------------------------- resource categorization ---
 # Late-game tables hold dozens of cards; group them into collapsible sections.
@@ -240,6 +248,14 @@ class AdvisorApp:
         self.sug_text.tag_configure("info_detail", foreground="#aaaaaa",
                                     font=("Microsoft YaHei UI", 8))
         self.sug_text.pack(fill="both", expand=True)
+        self.sug_text.bind("<Button-3>", self._dismiss_suggestion)
+        self.dismissed: set[tuple] = set()
+        self._sug_tags: dict[str, tuple] = {}
+        self.dismissed_var = tk.StringVar()
+        self.dismissed_label = ttk.Label(self.sug_frame, textvariable=self.dismissed_var,
+                                         foreground="#888888", cursor="hand2")
+        self.dismissed_label.bind("<Button-1>", self._restore_dismissed)
+        # packed lazily by _update_dismissed_label
         nb.add(self.sug_frame, weight=3)
 
         self.verb_frame = ttk.Labelframe(nb, padding=4)
@@ -494,13 +510,17 @@ class AdvisorApp:
                 self.season_label.pack_forget()
         self.sug_text.configure(state="normal")
         self.sug_text.delete("1.0", "end")
-        if not self.advice.suggestions:
+        shown = [s for s in self.advice.suggestions
+                 if s.urgent or _sug_key(s) not in self.dismissed]
+        if not shown:
             self.sug_text.insert("end", _t("none") + "\n", "detail")
-        urgent = [s for s in self.advice.suggestions if s.urgent]
-        advice = [s for s in self.advice.suggestions
+        urgent = [s for s in shown if s.urgent]
+        advice = [s for s in shown
                   if not s.urgent and s.priority >= INFO_PRIORITY]
-        info = [s for s in self.advice.suggestions
+        info = [s for s in shown
                 if not s.urgent and s.priority < INFO_PRIORITY]
+        self._sug_tags.clear()
+        idx = 0
         for header, title_tag, detail_tag, items in (
                 ("sec_urgent", "urgent", "urgent_detail", urgent),
                 ("sec_advice", "title", "detail", advice),
@@ -509,11 +529,40 @@ class AdvisorApp:
                 continue
             self.sug_text.insert("end", _t(header) + "\n", "header")
             for s in items:
-                self.sug_text.insert("end", f"{s.title}\n", title_tag)
+                tags = (title_tag,) if s.urgent else (title_tag, f"sug{idx}")
+                self.sug_text.insert("end", f"{s.title}\n", tags)
                 if s.detail:
-                    self.sug_text.insert("end", f"    {s.detail}\n", detail_tag)
+                    dtags = (detail_tag,) if s.urgent else (detail_tag, f"sug{idx}")
+                    self.sug_text.insert("end", f"    {s.detail}\n", dtags)
+                if not s.urgent:
+                    self._sug_tags[f"sug{idx}"] = _sug_key(s)
+                    idx += 1
         self.sug_text.configure(state="disabled")
+        self._update_dismissed_label()
         self._redraw_timers(reschedule=False)
+
+    def _dismiss_suggestion(self, event):
+        index = self.sug_text.index(f"@{event.x},{event.y}")
+        for tag in self.sug_text.tag_names(index):
+            key = self._sug_tags.get(tag)
+            if key:
+                self.dismissed.add(key)
+                self._render()
+                return
+
+    def _update_dismissed_label(self):
+        if self.dismissed:
+            self.dismissed_var.set(_t("dismissed").format(len(self.dismissed)))
+            if not self.dismissed_label.winfo_manager():
+                # claim the bottom strip before the expanding text eats all space
+                self.dismissed_label.pack(fill="x", pady=(2, 0), side="bottom",
+                                          before=self.sug_text)
+        elif self.dismissed_label.winfo_manager():
+            self.dismissed_label.pack_forget()
+
+    def _restore_dismissed(self, _event=None):
+        self.dismissed.clear()
+        self._render()
 
     def _redraw_timers(self, reschedule: bool = True):
         if self.advice:
