@@ -226,3 +226,20 @@ def test_obtain_ways_profession_aware(monkeypatch):
     assert len(exile_view) == len(base_view) == 2
     assert exile_view[0] != base_view[0], "ranking must differ by profession"
     assert exile_view[0] == base_view[1], "same two routes, opposite order"
+
+
+def test_updater_scrubs_pyinstaller_env(monkeypatch):
+    """The relaunch must not inherit onefile bookkeeping vars, or the new exe
+    skips extraction and dies on the old process's deleted _MEI dir."""
+    from cultist_adviser import updater
+    monkeypatch.setenv("_MEIPASS2", "X")
+    monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", "X")
+    monkeypatch.setenv("PATH_KEEP_ME", "yes")
+    env = updater._clean_env()
+    assert "_MEIPASS2" not in env
+    assert not any(k.startswith("_PYI_") for k in env)
+    assert env.get("PATH_KEEP_ME") == "yes"
+    for var in ("_MEIPASS2", "_PYI_APPLICATION_HOME_DIR",
+                "_PYI_ARCHIVE_FILE", "_PYI_PARENT_PROCESS_LEVEL"):
+        assert f'set "{var}="' in updater._SWAP_BAT

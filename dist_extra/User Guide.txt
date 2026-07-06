@@ -1,4 +1,4 @@
-Cultist Adviser · 密教军师  v0.8.0
+Cultist Adviser · 密教军师  v0.8.1
 ====================================
 
 A read-only floating adviser for Cultist Simulator.

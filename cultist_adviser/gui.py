@@ -367,7 +367,8 @@ class AdvisorApp:
 
         def work():
             try:
-                updater.download_and_stage(info["url"])
+                updater.download_and_stage(info["url"],
+                                           expected_size=info.get("size", 0))
             except Exception:
                 info["failed"] = True
                 self.root.after(0, self._update_failed)

@@ -50,6 +50,7 @@ def check_latest(timeout: float = 6.0) -> dict | None:
         if not asset:
             return None
         return {"tag": tag, "url": asset["browser_download_url"],
+                "size": int(asset.get("size") or 0),
                 "notes": (data.get("body") or "")[:600]}
     except Exception:
         return None
@@ -59,13 +60,16 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-def download_and_stage(url: str, timeout: float = 120.0) -> Path:
+def download_and_stage(url: str, timeout: float = 120.0,
+                       expected_size: int = 0) -> Path:
     """Download the release zip and extract the new exe next to the current
     one as CultistAdviser.new.exe. Returns the staged path; raises on failure."""
     exe_dir = Path(sys.executable).parent if is_frozen() else Path.cwd()
     req = urllib.request.Request(url, headers=_UA)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = resp.read()
+    if expected_size and len(payload) != expected_size:
+        raise RuntimeError(f"truncated download: {len(payload)}/{expected_size} bytes")
     tmp = Path(tempfile.gettempdir()) / "cultist_adviser_update.zip"
     tmp.write_bytes(payload)
     staged = exe_dir / "CultistAdviser.new.exe"
@@ -79,8 +83,16 @@ def download_and_stage(url: str, timeout: float = 120.0) -> Path:
     return staged
 
 
+# The relaunch must NOT inherit PyInstaller's onefile bookkeeping variables:
+# a child seeing _PYI_PARENT_PROCESS_LEVEL skips self-extraction and tries to
+# load python from the OLD process's (already deleted) _MEI directory —
+# "Failed to load Python DLL". Scrubbed both here and in the script.
 _SWAP_BAT = r"""@echo off
 cd /d "%~dp0"
+set "_MEIPASS2="
+set "_PYI_APPLICATION_HOME_DIR="
+set "_PYI_ARCHIVE_FILE="
+set "_PYI_PARENT_PROCESS_LEVEL="
 :wait
 timeout /t 1 /nobreak >nul
 del "CultistAdviser.exe" 2>nul
@@ -91,6 +103,12 @@ del "%~f0"
 """
 
 
+def _clean_env() -> dict:
+    """os.environ minus PyInstaller's onefile parent/child markers."""
+    return {k: v for k, v in os.environ.items()
+            if k != "_MEIPASS2" and not k.startswith("_PYI_")}
+
+
 def apply_and_exit():
     """Spawn the swap script and terminate. Frozen exe only."""
     exe_dir = Path(sys.executable).parent
@@ -99,5 +117,5 @@ def apply_and_exit():
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) \
         | getattr(subprocess, "DETACHED_PROCESS", 0)
     subprocess.Popen(["cmd", "/c", str(bat)], cwd=str(exe_dir),
-                     creationflags=flags, close_fds=True)
+                     creationflags=flags, close_fds=True, env=_clean_env())
     os._exit(0)
