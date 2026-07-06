@@ -1016,6 +1016,15 @@ def _opening_dancer(state: GameState, out: list[Suggestion]):
             tr("配心之影响 → 2 张活力（升健康）；配蛾之影响 → 2 张灵感（升激情）。正好凑一对直接升级属性。",
                "With Heart → 2 Vitality (toward Health); with Moth → 2 Glimmering (toward Passion). "
                "Either pair upgrades an attribute in one go.")))
+    club = next((e for e in ("dancerjobecdysisa", "dancerjobecdysisb",
+                             "dancerjobecdysisc") if q(e)), None)
+    if club and q("health"):
+        out.append(Suggestion(72,
+            tr(f"俱乐部是你的主业：「{display_name(club)}」+ 健康跳舞",
+               f"The club is your trade: dance {display_name(club)} with Health"),
+            tr("在「作业」跳舞赚钱；带上心/蛾之影响能拿小费，蜕变线的课程和形体也全从这支舞来。",
+               "Dance at Work for pay; Heart/Moth influences earn tips, and the Change "
+               "road's lessons and forms all come from this same dance.")))
 
 
 def _opening_priest(state: GameState, out: list[Suggestion]):
@@ -1095,8 +1104,9 @@ OPENING_GUIDES = {
 
 
 def _is_opening(state: GameState) -> bool:
-    """Still the basic-cards stage: no attribute has been upgraded yet."""
-    return not any(s.entity_id.startswith("skill") for s in _all_stacks(state))
+    """Still the basic-cards stage: no attribute upgraded and no cult founded."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    return not any(e.startswith(("skill", "cult")) for e in ids)
 
 
 def _tagged(rule, state: GameState, out: list[Suggestion], level: int):
@@ -1512,13 +1522,43 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
         return
     track, stage, eid = pos
     if track == "change":  # the Dancer's own road
-        out.append(Suggestion(58,
-            tr("蜕变之路进行中", "The road of Change continues"),
-            tr("在夜总会跳舞（4 级心或蛾之影响 + 欲望卡）换取「拟态」（心系）或「龄虫」（蛾系）"
-               "——蜕变的形体材料，凑齐新旧形体逐步完成蜕变。",
-               "Dance at the club (a level-4 Heart or Moth influence with your desire card) "
-               "to earn Guises (Heart) or Instars (Moth) — the forms your metamorphosis "
-               "is assembled from.")))
+        # Dance thresholds rise with the desire card's level
+        # (ecdysisdance_* recipes in DLC_DANCER_ecdysisclub_recipes.json).
+        # Stage a dances yield ascension LESSONS; b+ yield form cards.
+        need = {"a": 4, "b": 6, "c": 8, "d": 10, "e": 12, "f": 15, "g": 18}.get(stage)
+        if stage == "a":
+            out.append(Suggestion(68,
+                tr("蜕变 1→2：在夜总会跳舞（4 阶心或蛾）",
+                   "Change 1→2: dance at the club (4 total Heart or Moth)"),
+                tr("俱乐部合约 + 「诱惑：蜕变」+ 合计 4 阶的心或蛾——跳舞换取蜕变课程，"
+                   "升级欲望后正式踏上蜕变之路。",
+                   "The contract + Temptation: Change + 4 total Heart or Moth — the dance "
+                   "earns the ascension lesson that raises the desire and opens the road."),
+            ))
+            return
+        if stage == "g":
+            out.append(Suggestion(80,
+                tr("蜕变终局：最后一支舞", "The metamorphosis endgame: the final dance"),
+                tr("在夜总会跳舞，投入 18 阶「心」或「蛾」——用蛾得「成虫」、用心得「拟态：野猪」，"
+                   "新旧形体平衡则得均衡形体。把最终形体放入「入梦」即达成结局。"
+                   "想要月亮居屋（均衡）结局，先确认欲望卡上的新旧形体数量相等。",
+                   "Dance at the club with 18 total Heart or Moth: Moth yields the Imago, "
+                   "Heart the Guise: Boar, balanced forms the Meniscate way. Dream the final "
+                   "form to end the run. For the House of the Moon, equalize the New and Old "
+                   "Form counts on the desire first."),
+                urgent=False))
+        elif need:
+            out.append(Suggestion(58,
+                tr(f"蜕变之路：这一级的舞需要 {need} 阶心或蛾",
+                   f"Road of Change: this dance takes {need} total Heart or Moth"),
+                tr(f"在夜总会跳舞：俱乐部合约 + 欲望卡 + 合计 {need} 阶的「心」或「蛾」"
+                   "（影响/秘传/形体都算）。用蛾得「龄虫」积累新形体，用心得「拟态」积累旧形体"
+                   "——两者的比例决定最终结局。",
+                   f"Dance at the club: the contract + your desire + {need} total Heart or "
+                   "Moth (influences, lore and forms all count). Moth earns Instars toward "
+                   "the New Form, Heart earns Guises toward the Old — their balance decides "
+                   "the ending."),
+            ))
         return
     lore = ASCENSION_LORE[track]
     lore_zh = ASPECT_ZH[lore]
