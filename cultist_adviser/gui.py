@@ -428,8 +428,9 @@ class AdvisorApp:
         if not eid:
             return
         available = {r.entity_id for r in self.advice.resources} if self.advice else None
-        obtain = obtain_ways(eid, limit=8, available=available)
-        uses = use_ways(eid, limit=12, available=available)
+        verbs = {v.verb_id for v in self.advice.verbs} if self.advice else None
+        obtain = obtain_ways(eid, limit=8, available=available, verbs=verbs)
+        uses = use_ways(eid, limit=12, available=available, verbs=verbs)
         win = tk.Toplevel(self.root)
         win.title(_t("card_title").format(lexicon.display_name(eid)))
         win.geometry("620x360")

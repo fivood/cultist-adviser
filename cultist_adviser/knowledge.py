@@ -12,7 +12,9 @@ from .config import PROJECT_DIR
 from .lexicon import CONTENT_DIR, _lenient_json, display_name, recipe_name, tr
 
 CACHE_PATH = PROJECT_DIR / "knowledge_cache.json"
-MAIN_VERBS = {"work", "study", "dream", "explore", "talk", "time"}
+# The verbs every base-game run has; routes through other verbs are
+# profession-specific and get demoted unless the player's save has them.
+BASE_VERBS = {"work", "study", "dream", "explore", "talk", "time"}
 LORE_ASPECT_NAMES = ("edge", "forge", "grail", "heart", "knock",
                      "lantern", "moth", "winter")
 
@@ -158,7 +160,7 @@ def _load():
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-            if cache.get("v") != 4:
+            if cache.get("v") != 5:
                 raise KeyError("stale cache format")
             _recipes, _obtain = cache["recipes"], cache["obtain"]
             _el_aspects = cache["aspects"]
@@ -186,8 +188,12 @@ def _load():
                     if not isinstance(r, dict) or not r.get("id"):
                         continue
                     action = str(r.get("actionid") or r.get("actionId") or "").lower()
-                    if action not in MAIN_VERBS:
+                    if not action:
                         continue
+                    # Every verb is indexed — profession-specific systems
+                    # (Exile's use/send, the Ghoul's seances, club events)
+                    # have their own obtain/use routes. Ranking demotes
+                    # routes through verbs the player doesn't have.
                     req, neg, eff = {}, {}, {}
                     for k, v in (r.get("requirements") or {}).items():
                         try:
@@ -202,7 +208,10 @@ def _load():
                         try:
                             n = int(v)
                         except (TypeError, ValueError):
-                            continue
+                            # String values reference an aspect quantity
+                            # ("contentment": "comfort" = one per comfort) —
+                            # the recipe does produce the element.
+                            n = 1 if isinstance(v, str) and v.strip() else 0
                         if n > 0:
                             eff[str(k).lower()] = n
                     # Effect-less recipes still matter for the startable
@@ -225,7 +234,7 @@ def _load():
     _vaults, _counters = _parse_expeditions()
     if recipes:
         try:
-            CACHE_PATH.write_text(json.dumps({"v": 4,
+            CACHE_PATH.write_text(json.dumps({"v": 5,
                                               "recipes": recipes, "obtain": obtain,
                                               "uses": uses,
                                               "aspects": _el_aspects,
@@ -252,13 +261,24 @@ def _way_text(r: dict) -> str:
     return text
 
 
-def _ranked_ways(entity_id: str, available: set | None) -> list[dict]:
-    """Craftable first; among those, ways whose ingredients we hold, then fewest inputs."""
+def _verb_gap(action: str, verbs: set | None) -> int:
+    """1 when the route runs through a verb this player doesn't have (e.g. the
+    Exile's use/send shown to an Aspirant, or vice versa)."""
+    if verbs is None:
+        return 0 if action in BASE_VERBS else 1
+    return 0 if action in verbs else 1
+
+
+def _ranked_ways(entity_id: str, available: set | None,
+                 verbs: set | None = None) -> list[dict]:
+    """Craftable first, this profession's verbs first, then ways whose
+    ingredients we hold, then fewest inputs."""
     avail = {a.lower() for a in available} if available else set()
 
     def key(r):
         missing = sum(1 for k in r["req"] if k not in avail) if avail else 0
-        return (not r["craftable"], missing, len(r["req"]))
+        return (not r["craftable"], _verb_gap(r["action"], verbs),
+                missing, len(r["req"]))
 
     ways, seen = [], set()
     for i in _obtain.get(entity_id.lower(), []):
@@ -271,8 +291,9 @@ def _ranked_ways(entity_id: str, available: set | None) -> list[dict]:
     return sorted(ways, key=key)
 
 
-def obtain_ways(entity_id: str, limit: int = 6, available: set | None = None) -> list[str]:
-    return [_way_text(r) for r in _ranked_ways(entity_id, available)[:limit]]
+def obtain_ways(entity_id: str, limit: int = 6, available: set | None = None,
+                verbs: set | None = None) -> list[str]:
+    return [_way_text(r) for r in _ranked_ways(entity_id, available, verbs)[:limit]]
 
 
 def _use_text(r: dict, hero: str) -> str:
@@ -287,19 +308,22 @@ def _use_text(r: dict, hero: str) -> str:
     return text
 
 
-def use_ways(entity_id: str, limit: int = 8, available: set | None = None) -> list[str]:
-    """Recipes that consume this card as input. Craftable first, then whichever
-    the player can pay for right now, then fewest extra inputs. When nothing
-    matches the id directly (typical for follower/acquaintance/prisoner cards),
-    fall back to the card's own aspects — a card is a legitimate stand-in for
-    any aspect it carries."""
+def use_ways(entity_id: str, limit: int = 8, available: set | None = None,
+             verbs: set | None = None) -> list[str]:
+    """Recipes that consume this card as input. Craftable first, this
+    profession's verbs first, then whichever the player can pay for right
+    now, then fewest extra inputs. When nothing matches the id directly
+    (typical for follower/acquaintance/prisoner cards), fall back to the
+    card's own aspects — a card is a legitimate stand-in for any aspect
+    it carries."""
     eid = entity_id.lower()
     avail = {a.lower() for a in available} if available else set()
 
     def key(r):
         missing = sum(1 for k in r["req"]
                       if k != eid and k not in avail) if avail else 0
-        return (not r["craftable"], missing, len(r["req"]))
+        return (not r["craftable"], _verb_gap(r["action"], verbs),
+                missing, len(r["req"]))
 
     ways, seen = [], set()
     indices = list(_uses.get(eid, []))
@@ -544,7 +568,8 @@ def obstacle_counters(obstacle_id: str) -> list[str]:
     return _counters.get(obstacle_id.lower(), [])
 
 
-def use_hint(entity_id: str, available: set | None = None) -> str:
+def use_hint(entity_id: str, available: set | None = None,
+             verbs: set | None = None) -> str:
     """Best craftable recipe consuming this card, as a one-line hint — the
     'so WHAT do I do with it' counterpart of obtain_hint. Prefers recipes
     whose other ingredients are already on the table."""
@@ -556,11 +581,12 @@ def use_hint(entity_id: str, available: set | None = None) -> str:
         if not r["craftable"] or r.get("hint"):
             continue
         missing = sum(1 for k in r["req"] if k != eid and k not in avail)
+        gap = _verb_gap(r["action"], verbs)
         # Among payable recipes prefer the one consuming MORE of what's on
         # the table (pairing Fleeting with a live Fascination beats a solo
         # use), then the simpler one.
         mates_used = sum(1 for k in r["req"] if k != eid and k in avail)
-        key = (missing, -mates_used, len(r["req"]))
+        key = (gap, missing, -mates_used, len(r["req"]))
         if best is None or key < best[0]:
             best = (key, r)
     if best is None:
@@ -573,9 +599,10 @@ def use_hint(entity_id: str, available: set | None = None) -> str:
               f"Use: {display_name(r['action'])}{mates_en} ({recipe_name(r['id'])}).")
 
 
-def obtain_hint(entity_id: str, available: set | None = None) -> str:
+def obtain_hint(entity_id: str, available: set | None = None,
+                verbs: set | None = None) -> str:
     """Best craftable way, as a one-line hint for suggestions."""
-    craftable = [r for r in _ranked_ways(entity_id, available) if r["craftable"]]
+    craftable = [r for r in _ranked_ways(entity_id, available, verbs) if r["craftable"]]
     if not craftable:
         return ""
     r = craftable[0]

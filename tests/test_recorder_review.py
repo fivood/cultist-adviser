@@ -206,3 +206,23 @@ def test_updater_version_compare_and_stage(tmp_path, monkeypatch):
     import pytest as _pytest
     with _pytest.raises(Exception):
         updater.download_and_stage(small_zip.as_uri())
+
+
+def test_obtain_ways_profession_aware(monkeypatch):
+    """Routes through verbs the player lacks sink; string-valued effects
+    (\"contentment\": \"comfort\") still index as producers."""
+    from cultist_adviser import knowledge as km
+    recipes = [
+        {"id": "r_exile", "action": "use", "craftable": True, "hint": False,
+         "req": {"comfort": 1}, "neg": {}, "eff": {"contentment": 1}},
+        {"id": "r_dream", "action": "dream", "craftable": True, "hint": False,
+         "req": {"funds": 1}, "neg": {}, "eff": {"contentment": 1}},
+    ]
+    obtain = {"contentment": [0, 1]}
+    monkeypatch.setattr(km, "_recipes", recipes)
+    monkeypatch.setattr(km, "_obtain", obtain)
+    exile_view = km.obtain_ways("contentment", verbs={"use", "travel"})
+    base_view = km.obtain_ways("contentment", verbs={"dream", "work"})
+    assert len(exile_view) == len(base_view) == 2
+    assert exile_view[0] != base_view[0], "ranking must differ by profession"
+    assert exile_view[0] == base_view[1], "same two routes, opposite order"

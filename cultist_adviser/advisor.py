@@ -241,12 +241,16 @@ def _counters_text(counter_ids: list[str]) -> str:
     return " or ".join(display_name(c) for c in counter_ids)
 
 
+def _verb_set(state: GameState) -> set:
+    return {s.verb_id for s in find_situations(state)}
+
+
 def _available(state: GameState) -> set:
     return {s.entity_id for s in _all_stacks(state)}
 
 
 def _obtain_tip(state: GameState, entity_id: str) -> str:
-    hint = obtain_hint(entity_id, _available(state))
+    hint = obtain_hint(entity_id, _available(state), _verb_set(state))
     return ("" if not hint else tr("", " ") + hint)
 
 
@@ -610,7 +614,8 @@ def _affliction_rules(state: GameState, out: list[Suggestion]):
                 cures = AFFLICTION_CURES.get(eid, ())
                 if cures and not any(stack_quantity(state, c) for c in cures):
                     # No cure material on the table — say where it comes from.
-                    hint = obtain_hint(cures[-1], _available(state))
+                    hint = obtain_hint(cures[-1], _available(state),
+                                       _verb_set(state))
                     if hint:
                         detail += tr(f"目前两样都没有。「{display_name(cures[-1])}」",
                                      f" You hold neither. {display_name(cures[-1])}: ") \
@@ -692,7 +697,7 @@ def _generic_rules(state: GameState, out: list[Suggestion]):
             title = tr(f"{head} 即将消失（最快约 {soonest:.0f} 秒）",
                        f"{head} expiring (soonest ~{soonest:.0f}s)")
             detail = tr("尽快使用，否则会腐朽/消散。", "Use it before it decays.")
-        hint = use_hint(eid, _available(state))
+        hint = use_hint(eid, _available(state), _verb_set(state))
         if hint:
             detail += tr("", " ") + hint
         out.append(Suggestion(
