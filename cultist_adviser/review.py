@@ -500,6 +500,7 @@ class ReviewWindow:
         self.ach_tree = ttk.Treeview(ach_frame, show="tree", selectmode="browse")
         self.ach_tree.tag_configure("group",
                                     font=("Microsoft YaHei UI", 9, "bold"))
+        self.ach_tree.tag_configure("guide", foreground="#1565c0")
         ach_scroll = ttk.Scrollbar(ach_frame, orient="vertical",
                                    command=self.ach_tree.yview)
         self.ach_tree.configure(yscrollcommand=ach_scroll.set)
@@ -582,10 +583,13 @@ class ReviewWindow:
             title = f"{zh if lexicon.get_language() == 'zh' else en} ({len(items)})"
             gid = self.ach_tree.insert("", "end", text=title, tags=("group",),
                                        open=key != "ending")
+            zh_defs = ach.zh_labels() if lexicon.get_language() == "zh" else {}
+            guides = ach.guides() if lexicon.get_language() == "zh" else {}
             for aid in sorted(items):
                 d = defs.get(aid, {})
-                label = d.get("label", aid)
-                desc = d.get("descriptionunlocked", "") or ""
+                zh_d = zh_defs.get(aid, {})
+                label = zh_d.get("label") or d.get("label", aid)
+                desc = zh_d.get("desc") or d.get("descriptionunlocked", "") or ""
                 hidden = d.get("isHidden")
                 text = label if not hidden else (
                     "???" if lexicon.get_language() == "zh" else "???")
@@ -593,6 +597,11 @@ class ReviewWindow:
                 if desc and not hidden:
                     self.ach_tree.insert(node, "end",
                                          text=desc.replace("\n", " ")[:180])
+                if not hidden:
+                    for ln in guides.get(aid, "").split("\n"):
+                        if ln:
+                            self.ach_tree.insert(node, "end", tags=("guide",),
+                                                 text="→ " + ln[:180])
 
     def _render_stats(self):
         self.stats_tree.delete(*self.stats_tree.get_children())

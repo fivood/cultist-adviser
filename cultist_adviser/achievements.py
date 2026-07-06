@@ -142,3 +142,66 @@ PROMOTED_ASPECT_TO_ACH = {
     "knock": "a_promoted_exalted_knock", "lantern": "a_promoted_exalted_lantern",
     "moth": "a_promoted_exalted_moth", "winter": "a_promoted_exalted_winter",
 }
+
+
+@lru_cache(maxsize=1)
+def zh_labels() -> dict[str, dict]:
+    """id -> {label, description} from the official zh-hans localization."""
+    out: dict[str, dict] = {}
+    folder = CONTENT_DIR / "loc_zh-hans" / "achievements"
+    if not folder.is_dir():
+        return out
+    for path in folder.glob("*.json"):
+        try:
+            data = _lenient_json(path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        for value in data.values():
+            if not isinstance(value, list):
+                continue
+            for a in value:
+                if isinstance(a, dict) and a.get("id"):
+                    out[a["id"].lower()] = {
+                        "label": a.get("label", ""),
+                        "desc": a.get("descriptionunlocked", "") or "",
+                    }
+    return out
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"[\s　﻿]+", "", s)
+
+
+@lru_cache(maxsize=1)
+def guides() -> dict[str, str]:
+    """achievement id -> how-to text, from the hand-written guide file
+    (community/author knowledge; keyed by the official zh name)."""
+    path = Path(__file__).parent / "achievement_guide.txt"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    by_name: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("--") and stripped.endswith("--"):
+            current = None
+            continue
+        if stripped.startswith("#"):
+            current = by_name.setdefault(_norm_name(stripped[1:]), [])
+            continue
+        if current is not None and stripped:
+            current.append(stripped)
+    name_to_id = {_norm_name(v["label"]): k
+                  for k, v in zh_labels().items() if v["label"]}
+    out: dict[str, str] = {}
+    for name, lines in by_name.items():
+        aid = name_to_id.get(name)
+        if not aid or not lines:
+            continue
+        # First line is usually the flavor text (duplicates the official
+        # description); the how-to starts after it when more lines exist.
+        body = lines[1:] if len(lines) > 1 else lines
+        out[aid] = "\n".join(body)
+    return out
