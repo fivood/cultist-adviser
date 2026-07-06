@@ -1,0 +1,267 @@
+-- Cults --
+#a_cult_lantern
+Found the Lantern cult, the Mirror of Glory.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Lantern lore as the founding principle.
+#a_cult_winter
+Found the Winter cult, the Children of Silence (or the Ghoul DLC's Tower of the White Dove).
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Winter lore as the founding principle.
+#a_cult_edge
+Found the Edge cult, the Church of the Bright Edge.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Edge lore as the founding principle.
+#a_cult_secrethistories
+Found the Secret Histories cult, the Society of St Hydra.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Secret Histories lore as the founding principle.
+The Society of St Hydra can promote Believers and Disciples with lore of ANY aspect, but cannot Exalt a Disciple to the highest rank.
+#a_cult_knock
+Found the Knock cult, the Society of the Holy Wound.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Knock lore as the founding principle.
+#a_cult_grail
+Found the Grail cult, the Order of the Bloody Cup.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Grail lore as the founding principle.
+#a_cult_heart
+Found the Heart cult, the Temple Unceasing.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Heart lore as the founding principle.
+#a_cult_moth
+Found the Moth cult, the Wildwood Club.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Moth lore as the founding principle.
+#a_cult_forge
+Found the Forge cult, the Unflinching Order.
+Talking to any Acquaintance for the first time offers the cult-founding event; use any Forge lore as the founding principle.
+
+-- Endings --
+#a_ending_arrest
+Get arrested by a hunter (ending: Bars Across the Sun).
+During a Season of Suspicion, a hunter may appear while Notoriety or Mystique is on the table; each later Season of Suspicion absorbs Mystique/Notoriety and, depending on the hunter, produces Evidence. Sending followers on cult business risks Notoriety; killing prisoners or letting corpses fade always yields it. Stockpile Notoriety and let a Season of Suspicion absorb it all plus Damning Evidence.
+#a_ending_deathofthebody
+Die of exhausted Health (ending: Where Will They Find Me?).
+Idle without working or healing: let every Health turn into Affliction, Hunger and Injury, then into Decrepitude, and wait out the next Season of Sickness.
+#a_ending_despairending
+Let Dread pile up to three (ending: No Worst, There Is None).
+Failed expeditions and discussing Winter lore with a hunter always yield Dread; working with Decrepitude sometimes does; Restlessness and any Moth/Winter influence decays into Dread. Stockpile three Dread and let the next Season of Despair devour all three.
+Note: Contentment cancels Dread inside the Season of Despair — for each Contentment absorbed, prepare one extra Dread.
+#a_ending_visionsending
+Let Fascination pile up to three (ending: Under An Appreciable Mental Strain).
+Discussing Lantern lore or Fascination with a hunter, painting at Work with 6+ inspiration, and any expiring level-6+ Lantern influence all yield Fascination; the Mansus (Lodge of the Sage Knight, Painted River, Chamber of Ways, Red Church, Peacock's Door) can too. Stockpile three and let the next Season of Visions devour them.
+Note: Dread cancels Fascination inside the Season of Visions — for each Dread absorbed, prepare one extra Fascination.
+#a_ending_wintersacrifice
+Accept Poppy Lascelles' terms but fail to sacrifice a follower (ending: The Clock Striketh Twelve).
+Keep slotting lore into Talk until Poppy Lascelles appears. Talk to her with Passion; an action warns she will return with the turning season, and 300 seconds later she demands a follower. Offer no one.
+#a_ending_workvictory
+Climb to the top of Glover & Glover (ending: Evening falls / I'm Not... *Unhappy*).
+Work Reason to get A Position at Glover and Glover. Work it repeatedly (removing obstacles via Moth- or Edge-aspected followers when needed) until you reach the board seat. Then Work the top position with Reason and put Passion in the "accept" slot.
+#a_ending_workvictoryb
+Investigate A Favour from Authority with the Inspector's Position (ending: Ambition's tide / Corner Office).
+Detective start only. Dream into the Mansus — the Lodge of the Sage Knight (White Door), the Red Church or the Spider's Door can yield A Favour from Authority. Investigate it with the Detective's starting Inspector's Position.
+#a_ending_minorforgevictory
+Ascend through Forge (ending: Hairless and Imperishable).
+Complete any Rite at Work with 36+ total Forge and the Ascension: Power card carrying The Marks of Shaping at 6.
+The desire card:
+If your starting card is Temptation: Sensation or Temptation: Enlightenment, dream it with Health to turn it into Temptation: Power.
+Level 1→2: dream the temptation with level-4+ Forge lore — it becomes Dedication: Power.
+Level 2→3: Work the dedication with Way: Through the Stag Door and level-6+ Forge lore — it becomes Ascension: Power.
+Level 3→6: each Season of Ambitions draws in the ascension card and tries to devour one Funds; success raises the desire a level, failure lowers it (never below 3).
+The rite:
+Feed it lore (up to 14), a follower (usually up to 10; great summons reach 12), a tool (up to 12), an influence (up to 15) and an ingredient (up to 12). Examples:
+Sunset Rite + a level-10 Forge spell + King Crucible (12) + a level-15 Forge influence;
+Rite of the Sea's Feasting + level-12 Forge lore + a level-12 tool + a level-12 ingredient;
+Rite of the Mother's Mercy + level-12 Forge lore + King Crucible + a level-12 ingredient.
+If a lover gets drawn into the rite midway, do NOT add Passion or you'll get the Ever After ending instead.
+#a_ending_minorforgevictory_withrisen
+Ascend through Forge with your undead beloved (Hairless and Semi-Perishable).
+The undead beloved: court a lover first (see the Ever After entries). Corpses and Risen are on timers — do this step last. Send the lover alone on expeditions until they die (don't heal their injuries in Talk). Use the Rite of the Mother's Mercy, the Rite of the Crow's Quenching or the Rite of the Sea's Feasting with the lover's corpse as ingredient to summon a Burgeoning Risen (Winter 4 + Moth 2) or Shattered Risen (Winter 4 + Edge 2).
+Then run the ascension rite as usual — do NOT slot the Risen yourself; let the running rite draw it in, or the lover is consumed.
+#a_ending_minorgrailvictory
+Ascend through Grail (ending: Smooth Without, Red Within).
+Complete any Rite at Work with 36+ total Grail (27+ if your lover is in the rite) and the Ascension: Sensation card carrying The Marks of Delight at 6.
+The desire card mirrors the Forge route: dream the temptation with Health to make it Temptation: Sensation if needed; dream with level-4+ Grail lore → Dedication: Sensation; Work with Way: Through the Stag Door and level-6+ Grail lore → Ascension: Sensation; each Season of Ambitions demands a prisoner or corpse to rise (3→6).
+Rite examples: Sunset Rite + a level-10 Grail spell + Ezeem, the Second Thirstly (12) + a level-15 Grail influence; Rite of the Sea's Feasting + level-12 Grail lore + a level-12 tool + a level-12 ingredient.
+If a lover gets drawn in midway, do NOT add Passion or you'll get Ever After instead.
+#a_ending_minorgrailvictory_withrisen
+Ascend through Grail with your undead beloved (Smooth Without, Dead Within).
+Same as the Forge with-Risen route: court a lover, let them die on solo expeditions, raise them as a Burgeoning or Shattered Risen, then run the Grail ascension and let the rite draw the Risen in on its own.
+#a_ending_minorlanternvictory
+Ascend through Lantern (ending: Thine be the Glory).
+Complete any Rite at Work with 36+ total Lantern and the Ascension: Enlightenment card carrying The Marks of Light at 6.
+The desire card: dream the temptation with Reason to make it Temptation: Enlightenment if needed; dream with level-4+ Lantern lore → Dedication: Enlightenment; Work with Way: Through the Stag Door and level-6+ Lantern lore → Ascension: Enlightenment; each Season of Ambitions demands a prisoner (3→6).
+Rite examples: Sunset Rite + a level-10 Lantern spell + Teresa (12) + a level-15 Lantern influence; Rite of the Sea's Feasting + level-12 Lantern lore + Watchman's Glass + a level-12 ingredient.
+If a lover gets drawn in midway, do NOT add Passion or you'll get Ever After instead.
+#a_ending_minorlanternvictory_withrisen
+Ascend through Lantern with your undead beloved (Thine be the Ghoul).
+Same as the other with-Risen routes: court a lover, let them die on solo expeditions, raise them as a Burgeoning or Shattered Risen, then run the Lantern ascension and let the rite draw the Risen in on its own.
+#a_ending_minormothvictory
+Dancer DLC: ascend through Moth (ending: The Dodo and the Dragon).
+Put 18+ total Moth into the final dance with the desire's The New Form aspect below 4 — you gain the Imago; dream it.
+#a_ending_minormothvictory_withrisen
+Dancer DLC: ascend through Moth with your undead beloved (The Dodo and the Draugr).
+Raise your lover as a Risen as in the base-game routes; ascend normally and the rite draws them in.
+#a_ending_minorheartvictory
+Dancer DLC: ascend through Heart (ending: My Constancy Assured).
+Put 18+ total Heart into the final dance with the desire's Old Form aspect below 4 — you gain Guise: Boar; dream it.
+#a_ending_minorheartvictory_withrisen
+Dancer DLC: ascend through Heart with your undead beloved (Our Constancy Assured).
+Raise your lover as a Risen as in the base-game routes; ascend normally and the rite draws them in.
+#a_ending_minormeniscatevictory
+Dancer DLC: ascend balanced between Moth and Heart (The House of the Moon).
+The New Form and Old Form aspects must balance after the final dance. If New Form is 3 and Old Form 4, dance with 18+ Heart for Guise: Boar; if Old Form is 3 and New Form 4, dance with 18+ Moth for the Imago. Dream the result. Any other spread cannot earn it — balance the forms before the last dance.
+#a_ending_minormeniscatevictory_withrisen
+Dancer DLC: the balanced ascension with your undead beloved (The House of My Moon).
+Raise your lover as a Risen as in the base-game routes; ascend normally and the rite draws them in.
+#a_ending_minorknockvictory
+Priest DLC: complete all seven scar-locks and become the door (ending: The Mother's arms / Unsealed and Unseamed).
+Run a Rite at Work with any scar-lock and 24+ total Knock, then feed the remaining six scar-locks in one by one. The rite must hold a tool without consuming it, so use one of: the Rite of the Crucible Soul, the Rite of the Map's Edge, the Rite of the Sea's Feasting, or the Watchman's Rite.
+Opening: Work An Appointment to a Quiet Parish with Passion for Reason and A Locksmith's Secret; Work again with Reason + the Secret for Fervour; a third Work with Reason or Passion + the Secret + Fervour starts the game proper.
+Fervour and scar-locks: Working the parish with Reason or Passion plus any lore can yield Fervour (higher lore and the matching sermon style help). Working the parish with Health, a level-10+ lore (not Knock or Secret Histories) and Fervour, absorbing one Restlessness, then adding the matching discipline yields that principle's scar-lock:
+Lantern|Reason sermons|Erudition · Forge|Passion|an antique coin · Edge|Passion|An Injury · Winter|Reason|An Affliction · Heart|Passion|Vitality · Grail|Passion|Hunger · Moth|Passion|Glimmering.
+Each scar-lock permanently costs one Health, seven in all, and exercise gives at most five: talk to a summon with the Lamp of Loss or Thresher of Thoughts aspect to turn Reason/Passion into Decrepitude, then run Forge's Redemption to turn Decrepitude back into Health.
+#a_ending_minormarevictory
+Priest DLC: complete three scar-locks then die of exhausted Health (ending: Where do we go / The Mare and Me).
+Make three scar-locks as above, then fall ill and simply never treat it.
+#a_ending_minorwintervictory
+Ghoul DLC: finish the Palest Painting (ending: Until the winter comes / Nothing Must Be Forgotten).
+Talk to the patron 'Miss Naenia' with the Palest Painting: it gains A Way Back Through Dream. Dream it and surrender ALL your Passion, Reason and Health. Losing all Health means sickness can kill you — surrender Health last.
+The desire and Formula: Elixir Zeboim: the Ghoul starts with the unique Temptation: Remembrance. Giving a Fleeting Reminiscence to 'Miss Naenia' in Talk the first time yields Formula: Elixir Zeboim?; Studying the formula + the temptation + a human corpse + Funds, then adding Passion, upgrades both (Dedication: Remembrance, Formula: Elixir Zeboim).
+Watch the Graveyard Mouth aspect: each Season of Ambitions raises it by 1; Studying the formula + the dedication + a human corpse lowers it by 1. At 7 the game ends with Fruitfulness instead. The desire with Graveyard Mouth can Explore for the Cemetery; explore it again with Health or a follower for corpses.
+The Palest Painting: Studying the formula with a Remnant-aspected relic (instead of a corpse) yields a unique Hour-memory. Paint at Work with your Passion skill, one Passion, an Hour-memory in the inspiration slot and a human corpse in the materials slot — you get A Pale Canvas tinted with that memory's colour. Keep painting with one Passion and the remaining Hour-memories; the canvas absorbs each colour, and after all nine it becomes the Palest Painting.
+Remnants (source → memory → colour): bast fragment (St Felix's, SH2) → revel → tide; scarred bone (Crookles Hill, SH4) → fury → seven-coils; wolf's head (Caglione's hoard, SH4) → glory → the dead; shadowless shard (Shadowless Kings' tombs, SH10) → radiance → sky; long-lived fragment (Ragon's tomb, SH12) → thresholds → double-door; haliotic lymph (Ragon's tomb SH12 guaranteed; Mia/Noonport by chance) → wandering → not-black; the true blood of St Januarius (Grickle Castle SH14 guaranteed; Mia/Noonport by chance) → endlessness → turning; Decrepitude (from spent Health) → honeyed → what-will-be; King Crucible's guttering flame (left when he fades; studying it bars re-summoning him) → golden → ancient flame.
+#a_ending_minorcrownedgrowthvictory
+Ghoul DLC: let the Graveyard Mouth reach 7 (ending: Fruitfulness / All The Infections That The Sun Sucks Up).
+Dedication: Remembrance gains one Graveyard Mouth each Season of Ambitions; Studying Formula: Elixir Zeboim + the dedication + a human corpse lowers it by one. Study one corpse to upgrade the desire, then never study another: the aspect climbs to 7 on its own and the next Season of Ambitions ends the game with this achievement.
+#a_ending_colonel
+Exile DLC: pledge to the Colonel, then ascend through the desire of Defiance (ending: Eternal Enmity — the Colonel).
+#a_ending_lionsmith
+Exile DLC: pledge to the Lionsmith, then ascend through the desire of Defiance (ending: Eternal Enmity — the Lionsmith).
+#a_ending_wolf
+Exile DLC: ascend through Defiance without serving the Colonel or the Lionsmith (Eternal Enmity — the Wolf Divided).
+Raising the desire: first use of any lore or sacred weapon yields Temptation: Defiance; raise its The Exercise of Defiance aspect to 7. Ways to raise it: relinquish A Reckoner Corpse with the temptation (once); Talk the temptation with your dwelling to taunt the foe onto the board (repeatable, counts once); Talk the temptation with any sacred weapon to mail it to the foe (once); travel to the Colonel's/Lionsmith's shrine with the temptation to pledge (once — required for their endings); use Connection: Radicals + The Wolf Divided's Shadow + Stalingrad or Tiflis + the temptation to raise chaos for the Wolf (repeatable: +3 levels if pledged to the Lionsmith, +2 unpledged, +1 under the Colonel); use Connection: Radicals + a Forge 2+ card + a Troubled dwelling + the temptation to aid an uprising (Lionsmith only, counts once; the city becomes unscoutable; under the Colonel this LOWERS the desire); the Winter mirror of that (Colonel only) betrays the uprising; slot the temptation into the foe's attack to taunt him (repeatable, Lionsmith only).
+With the desire at 7 and six wounds on the foe, Talk the desire and/or your dwelling to finish.
+#a_ending_foecaughtup
+Exile DLC: take seven wounds and never clear them (ending: A Reckoning / Call It A Christmas Present).
+Trace on the board draws the foe; ignoring his attacks yields My Wound. At seven of them the next day-turn spawns A Reckoning Comes; if all seven still stand 15 seconds later, the ending fires. Fastest route: idle from the start and never use An Escape Plan.
+#a_ending_obscurityvictorya
+Exile DLC: retire into obscurity without killing the foe, with total comfort below 20 (ending: a tranquil life / The Other Side of the World).
+#a_ending_obscurityvictorya_foeslain
+Exile DLC: kill the foe, then retire with total comfort below 20 (Only the Best).
+#a_ending_obscurityvictoryb
+Exile DLC: retire without killing the foe, total comfort 20–29 (The Sweet Bones).
+#a_ending_obscurityvictoryb_foeslain
+Exile DLC: kill the foe, then retire with total comfort 20–29 (Employment Opportunities).
+#a_ending_obscurityvictoryc
+Exile DLC: retire without killing the foe, total comfort 30+ (a rare and happy life / Velvet House).
+Obscurity comes two ways: travel to a Remote destination (Stalingrad, Candia-Herakleion, Sverdlovsk, Samarkand, Mashhad, Valletta, the Captain's Priory, Sunlight Isle, Mistfire Point, Moonwound Lake, the Tiger's Den, Kamakura's hidden temple, the Five Cities), or relinquish Trace with two Assists Deception cards (Night, any connection or venue). Comfort comes mostly from purchased Spaces (offices and villas), plus some curios and rarities. Then Talk Temptation: Escape with seven Obscurity.
+#a_ending_obscurityvictoryc_foeslain
+Exile DLC: kill the foe, then retire with total comfort 30+ (Keep the Sunset Company).
+Killing the foe: he dies at seven Foe's Wounds (or Foe's Unstanchable Wounds). Wound him by putting sacred weapons and/or Edge lore in the Use slot when he's on the board (both together = guaranteed; Biedde's Blade alone can inflict the longer-lasting unstanchable wound) — defending with them does NOT wound. Followers defending his attacks may die and wound him as they fall (the Last Antaean Servant from the Tripoli property cannot die yet still wounds); the seventh wound must come from the Use slot, not an ally. His death drops A Trophy of my Foe — hand it in once comfort qualifies (or use the usual seven Obscurity + Temptation: Escape). After the kill, scouting any Map's Edge region yields unlimited Obscurity.
+#a_ending_velvet
+Exile DLC: ascend through Velvet's nameless Name (ending: Kinship).
+Scout Amsterdam for the Dame Matutine; Talk to her with seven pentimento-aspected items. Offering 1–6 instead yields the Flûte Matutine — with The Sea from a coastal city, Use them together to call her again (the flute works ONCE, and Amsterdam can be reached once: carry at least one pentimento item before going).
+Pentimento items: Aebrecht's broken sword (Krakow — explore the Church of St Marzanna the White; needs Winter/Heart/Edge 4, Winter/Lantern/Moth 8, Winter/Heart 12); the half-smoked cigarette (Candia-Herakleion — Use The Horned Axe's Shadow to explore the owl shrine, then feed it one pentimento item; no Stranger's Water on the board); the labhite fragment (Marrakech — talk to Echidna with a companion/Stolen Decade/any corpse as a gift while no enemy is present, or with Lalla Chaima the Huntress on the board; Talk the Fallen Labhite with Temptation: Defiance or Rage); the sun-kissed stone (same Fallen Labhite, but with Temptation: Escape or Tranquillity — keep your Escape temptation!); the Cilica caul (Tripoli — travel with the Antaeum and the Last Antaean Initiate; buying any Space in Tripoli introduces the Initiate); the rebound Book of the Proud Sun (collect three loose pages in Alexandria/Istanbul/Samarkand, Tiflis/Krakow/London, Tripoli/Marrakech, then Use them with one Cash); my unhealing wound (Budapest — give What is Not Seen? a Moth-aspected card, permanently consumed; Night or Connection: Underworld works); Rarity: 'Green as Remembered Rain' (Rostock — the art-about-yearning opportunity, 2 Cash); Rarity: Gris's guitar (Avignon — the antique-guitar opportunity, 3 Cash); the stained gloves (Kyiv — talk to Our Lady of Wires with a gift as with Echidna).
+#a_ending_auclairvictory
+Court Auclair and set ascension aside (Ever After: Auclair).
+#a_ending_catvictory
+Court Cat and set ascension aside (Ever After: Cat).
+#a_ending_cliftonvictory
+Court Clifton and set ascension aside (Ever After: Clifton).
+#a_ending_clovettevictory
+Court Clovette and set ascension aside (Ever After: Clovette).
+#a_ending_dorothyvictory
+Court Dorothy and set ascension aside (Ever After: Dorothy).
+#a_ending_elridgevictory
+Court Elridge and set ascension aside (Ever After: Elridge).
+#a_ending_enidvictory
+Court Enid and set ascension aside (Ever After: Enid).
+#a_ending_laidlawvictory
+Court Laidlaw and set ascension aside (Ever After: Laidlaw).
+#a_ending_leovictory
+Court Leo and set ascension aside (Ever After: Leo).
+#a_ending_nevillevictory
+Court Neville and set ascension aside (Ever After: Neville).
+#a_ending_portervictory
+Court Porter and set ascension aside (Ever After: Porter).
+#a_ending_reniravictory
+Court Renira and set ascension aside (Ever After: Renira).
+#a_ending_rosevictory
+Court Rose and set ascension aside (Ever After: Rose).
+#a_ending_salibavictory
+Court Saliba and set ascension aside (Ever After: Saliba).
+#a_ending_sleevictory
+Court Slee and set ascension aside (Ever After: Slee).
+#a_ending_sylviavictory
+Court Sylvia and set ascension aside (Ever After: Sylvia).
+#a_ending_tristanvictory
+Court Tristan and set ascension aside (Ever After: Tristan).
+#a_ending_valcianevictory
+Court Valciane and set ascension aside (Ever After: Valciane).
+#a_ending_victorvictory
+Court Victor and set ascension aside (Ever After: Victor).
+#a_ending_violetvictory
+Court Violet and set ascension aside (Ever After: Violet).
+#a_ending_ysabetvictory
+Court Ysabet and set ascension aside (Ever After: Ysabet).
+Courting: Talk to a follower at Oriflamme's Auction House, The Ecdysis Club or the Streets Strange by Moonlight together with your desire card. Each follower favours particular venues and desires.
+#a_ending_workvictorymarriage
+Dancer DLC: accept the benefactor's proposal (ending: A NEW LIFE).
+Work A Contract at the Gaiety with Health; adding Health or Restlessness at the second step can attract a benefactor. Work the benefactor with Health and Funds: after 45 seconds they make a demand — answer with Health, Reason, Passion or Funds. Success adds Besotment, failure Boredom (success isn't guaranteed even with the right card). At Boredom 7, or if ignored for 180 seconds, the benefactor leaves. At Besotment 7+ another Work gives a 70% proposal chance (guaranteed at 10). Talk to the proposing benefactor with Passion.
+#a_ending_majorforgevictory
+As the Burning Apostle, help the Shaper ascend as the Forge's Name (ending: Breaking Dawn).
+#a_ending_majorgrailvictory
+As the Feasting Apostle, help the Delighter ascend as the Grail's Name (ending: I, the Feast).
+#a_ending_majorlanternvictory
+As the Witnessing Apostle, help the Illuminate ascend as the Lantern's Name (ending: The Third Way).
+
+-- Mansus --
+#a_mansus_wood
+Enter the Wood for the first time.
+Dream Passion, then add any lore of Lantern, Moth or Knock aspect.
+#a_mansus_whitedoor
+Gain Way: The White Door.
+Dream Way: The Wood, then add any level-4+ lore of Lantern, Winter or Knock.
+#a_mansus_stagdoor
+Answer the Stag Door's riddle.
+Dream Way: The White Door with your desire card to draw one of five riddles, then dream the riddle with its level-6 answer:
+"What can be lost?" → An Ecdysiast's Parable (Moth 6);
+"Where is mercy found?" → An Unmerciful Mantra (Lantern 6);
+"What word makes the sacrifice sweet?" → A Delightful Sacrament (Grail 6);
+"What must be opened before this way opens?" → A Consent of Wounds (Knock 6);
+"Where is the queen who was never born?" → A Forgotten Chronicle (Secret Histories 6).
+This yields Way: Through the Stag Door and the achievement.
+#a_mansus_spiderdoor
+Pass the Spider's Door with a prisoner's sacrifice.
+Dream Way: Through the Stag Door with any level-8+ Lantern, Grail or Knock lore for Way: The Spider's Door; then dream that Way with a prisoner-aspected card. Prisoners: have an Edge or Grail follower abduct or seduce someone in Talk, or lock any follower in your headquarters' cells.
+#a_mansus_peacockdoor
+Pass the Peacock's Door with a mirror or the Frangiclave.
+Dream Way: The Spider's Door with any level-10+ Lantern, Edge or Knock lore for Way: The Peacock's Door; then dream that Way with the Watchman's Glass, the Wildering Mirror or the Frangiclave.
+Mirrors crack after use — a Forge-aspected follower repairs them in Talk for an antique coin.
+#a_mansus_tricuspidgate
+As an Apostle, help your mentor pass the Tricuspid Gate and become a Name.
+
+-- Exalting disciples --
+#a_promoted_exalted_lantern
+Exalt a Lantern follower to the highest rank.
+Talk: the Mirror of Glory + a Lantern Disciple + Lantern lore (a Lantern tool helps) totalling 12+ Lantern.
+#a_promoted_exalted_forge
+Exalt a Forge follower to the highest rank.
+Talk: the Unflinching Order + a Forge Disciple + Forge lore (a Forge tool helps) totalling 12+ Forge.
+#a_promoted_exalted_edge
+Exalt an Edge follower to the highest rank.
+Talk: the Church of the Bright Edge + an Edge Disciple + Edge lore (an Edge tool helps) totalling 12+ Edge.
+#a_promoted_exalted_winter
+Exalt a Winter follower to the highest rank.
+Talk: the Children of Silence + a Winter Disciple + Winter lore (a Winter tool helps) totalling 12+ Winter.
+Besides the Children of Silence, the Ghoul DLC's Tower of the White Dove (founded with Formula: Elixir Zeboim) can also exalt Winter followers.
+#a_promoted_exalted_heart
+Exalt a Heart follower to the highest rank.
+Talk: the Temple Unceasing + a Heart Disciple + Heart lore (a Heart tool helps) totalling 12+ Heart.
+#a_promoted_exalted_grail
+Exalt a Grail follower to the highest rank.
+Talk: the Order of the Bloody Cup + a Grail Disciple + Grail lore (a Grail tool helps) totalling 12+ Grail.
+#a_promoted_exalted_knock
+Exalt a Knock follower to the highest rank.
+Talk: the Society of the Holy Wound + a Knock Disciple + Knock lore (a Knock tool helps) totalling 12+ Knock.
+#a_promoted_exalted_moth
+Exalt a Moth follower to the highest rank.
+Talk: the Wildwood Club + a Moth Disciple + Moth lore (a Moth tool helps) totalling 12+ Moth.
+
+-- Summoning --
+#a_summon_generic
+Successfully summon a spirit.
+Run a Rite-aspected card at Work with the required materials and aspect totals. Risen last 120 seconds (extendable by rite); other summons usually last 180 seconds on the table. When their time runs out or they're wounded they return to their world, leaving residue where applicable.

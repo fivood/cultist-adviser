@@ -249,10 +249,11 @@ def test_achievement_guides_parse_and_match():
     """The hand-written guide file maps every entry to a real achievement id
     via the official zh label; flavor line is dropped when a how-to follows."""
     from cultist_adviser import achievements as ach
-    g = ach.guides()
-    if not g:  # machine without the game content — nothing to assert
-        return
     defs = ach.definitions()
-    assert set(g) <= set(defs)
-    assert len(g) >= 80  # 83 at the time of writing
-    assert all(v.strip() for v in g.values())
+    for lang in ("zh", "en"):
+        g = ach.guides(lang)
+        if not g and lang == "zh":  # machine without the game content
+            return
+        assert set(g) <= set(defs)
+        assert len(g) >= 80  # 83 at the time of writing
+        assert all(v.strip() for v in g.values())

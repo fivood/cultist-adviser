@@ -584,7 +584,7 @@ class ReviewWindow:
             gid = self.ach_tree.insert("", "end", text=title, tags=("group",),
                                        open=key != "ending")
             zh_defs = ach.zh_labels() if lexicon.get_language() == "zh" else {}
-            guides = ach.guides() if lexicon.get_language() == "zh" else {}
+            guides = ach.guides(lexicon.get_language())
             for aid in sorted(items):
                 d = defs.get(aid, {})
                 zh_d = zh_defs.get(aid, {})

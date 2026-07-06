@@ -1,4 +1,4 @@
-Cultist Adviser · 密教军师  v0.9.0
+Cultist Adviser · 密教军师  v0.9.1
 ====================================
 
 A read-only floating adviser for Cultist Simulator.
@@ -131,7 +131,7 @@ A. Click "Review" in the top bar. The adviser snapshots
      * Action stats — how many times you did each action
      * Achievements — local unlock record, progress N/83,
        locked ones grouped by category; locked entries
-       expand to how-to notes (Chinese UI)
+       expand to how-to notes
      * A resource trend chart on top (Funds / Dread /
        Fascination)
 

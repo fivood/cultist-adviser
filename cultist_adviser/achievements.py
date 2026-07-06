@@ -172,11 +172,12 @@ def _norm_name(s: str) -> str:
     return re.sub(r"[\s　﻿]+", "", s)
 
 
-@lru_cache(maxsize=1)
-def guides() -> dict[str, str]:
-    """achievement id -> how-to text, from the hand-written guide file
-    (community/author knowledge; keyed by the official zh name)."""
-    path = Path(__file__).parent / "achievement_guide.txt"
+@lru_cache(maxsize=2)
+def guides(lang: str = "zh") -> dict[str, str]:
+    """achievement id -> how-to text. The zh file is the hand-written source
+    keyed by official zh names; the en file is its translation keyed by id."""
+    fname = "achievement_guide.txt" if lang == "zh" else "achievement_guide_en.txt"
+    path = Path(__file__).parent / fname
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -194,14 +195,16 @@ def guides() -> dict[str, str]:
         if current is not None and stripped:
             current.append(stripped)
     name_to_id = {_norm_name(v["label"]): k
-                  for k, v in zh_labels().items() if v["label"]}
+                  for k, v in zh_labels().items() if v["label"]} \
+        if lang == "zh" else {}
     out: dict[str, str] = {}
     for name, lines in by_name.items():
-        aid = name_to_id.get(name)
+        # the en file is keyed by achievement id directly
+        aid = name_to_id.get(name) if lang == "zh" else name
         if not aid or not lines:
             continue
-        # First line is usually the flavor text (duplicates the official
-        # description); the how-to starts after it when more lines exist.
-        body = lines[1:] if len(lines) > 1 else lines
+        # zh entries open with flavor text (duplicates the official
+        # description); the en file carries no flavor lines.
+        body = (lines[1:] if len(lines) > 1 else lines) if lang == "zh" else lines
         out[aid] = "\n".join(body)
     return out
