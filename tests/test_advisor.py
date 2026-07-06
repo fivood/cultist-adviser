@@ -751,3 +751,30 @@ def test_save_backupper(tmp_path, monkeypatch):
     assert len(list(tmp_path.glob("save_*_danger.json"))) == 1
     b.backup(b"four", danger, {"despair"})  # persisting danger -> no repeat
     assert len(list(tmp_path.glob("save_*_danger.json"))) == 1
+
+
+def test_midgame_nudges_fire_while_verbs_busy():
+    """Tester feedback: read-your-books / combine-lore / patron / expedition
+    nudges must fire from board state alone, with every verb running."""
+    from cultist_adviser.advisor import advise as adv
+    busy = [verb("time", 30), verb("study", 40), verb("explore", 20),
+            verb("talk", 35), verb("work", 41)]
+    tokens = busy + [
+        card("skillhealthb"),  # past the opening
+        card("scholarlatin"),
+        card("fakebooklatin"), card("fakebook"),  # readable books
+        card("fragmentgrail"), card("fragmentgrail"),  # duplicate lore
+        card("fragmentsecrethistories"),
+        card("laidlaw_a"), card("sulochana"),
+    ]
+    subs = adv(state(tokens), spoiler=1).suggestions
+    got = {s.priority for s in subs}
+    assert 75 in got, "cult founding names concrete cards"
+    assert 68 in got, "unread books nudge"
+    assert 64 in got, "duplicate lore combine nudge"
+    assert 62 in got, "patron commission note"
+    assert 61 in got, "expedition via Secret Histories lore"
+    # founding suggestion names the acquaintance
+    found = next(s for s in subs if s.priority == 75)
+    from cultist_adviser.lexicon import display_name
+    assert display_name("laidlaw_a") in found.detail

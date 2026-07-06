@@ -1480,22 +1480,24 @@ def _cult_rules(state: GameState, out: list[Suggestion]):
     ids = {s.entity_id for s in _all_stacks(state)}
     if any(e.startswith("cult") for e in ids):
         return
-    has_acq = any(has_aspect(e, "acquaintance") for e in ids)
-    has_lore = any(e.startswith("fragment") for e in ids)
-    if has_acq and has_lore:
+    acq = next((e for e in ids if has_aspect(e, "acquaintance")), None)
+    lore = next((e for e in sorted(ids) if e.startswith("fragment")), None)
+    if acq and lore:
         out.append(Suggestion(75,
-            tr("可以建立教团了", "You can found your cult"),
-            tr("把熟人和一份秘传放入「交谈」即可解锁建团。教团的系别决定仪式与手下方向，灯之教派对新手最友好。",
-               "Talk with an acquaintance plus a lore fragment to unlock founding. The lore's "
-               "aspect sets your cult's leaning — Lantern is the most forgiving choice.")))
-    elif has_acq:
+            tr("现在就能建教团", "Found your cult — right now"),
+            tr(f"具体操作：把「{display_name(acq)}」和一份秘传（比如「{display_name(lore)}」）"
+               "一起放入「交谈」。用哪系秘传就建哪系教团——系别决定仪式与手下方向，灯之教派对新手最友好。",
+               f"Concretely: Talk with {display_name(acq)} plus one lore fragment "
+               f"(e.g. {display_name(lore)}). The lore's aspect becomes your cult's "
+               "leaning — Lantern is the most forgiving choice.")))
+    elif acq:
         out.append(Suggestion(58,
             tr("建团还差：一份秘传", "Founding a cult still needs: a lore fragment"),
             tr("熟人已经有了。秘传碎片从读书、入梦或冥想获得——任意一系都能开团，"
                "凑齐后把两者一起放入「交谈」。",
                "You have the acquaintance. Lore fragments come from books, dreams or "
                "meditation — any aspect founds a cult. Talk with both together.")))
-    elif has_lore:
+    elif lore:
         out.append(Suggestion(58,
             tr("建团还差：一位熟人", "Founding a cult still needs: an acquaintance"),
             tr("秘传已经有了。用「探索」在城市里结识熟人，或等剧情送上门；"
@@ -1887,12 +1889,88 @@ def _achievement_rules(state: GameState, out: list[Suggestion]):
             spoiler=SPOILER_GUIDE))
 
 
+def _midgame_rules(state: GameState, out: list[Suggestion]):
+    """Board-state nudges the tester asked for: they must NOT depend on a verb
+    being idle at the moment of evaluation — 'read your books' is true whether
+    or not Study is busy right now."""
+    # Readable, unread books pile up silently: name them.
+    scholars = {l for l in BOOK_LANGS if _qty_anywhere(state, "scholar" + l)}
+    readable = []
+    for s in _tabletop_stacks(state):
+        lang, is_book = _book_language(s.entity_id)
+        if not is_book or (lang and lang not in scholars):
+            continue  # unreadable ones are _book_rules' business
+        if any(k.startswith("mastery") for k in (s.mutations or {})):
+            continue
+        readable.append(s.entity_id)
+    if len(readable) >= 2:
+        names = "、".join(f"《{display_name(b)}》".replace("《《", "《").replace("》》", "》")
+                          for b in readable[:3]) \
+            if get_language() == "zh" else \
+            ", ".join(display_name(b) for b in readable[:3])
+        out.append(Suggestion(68,
+            tr(f"{len(readable)} 本书还没读", f"{len(readable)} books wait unread"),
+            tr(f"读书是秘传和属性碎片的主要来源——逐本放入「研读」。先读：{names}。",
+               f"Books are the main source of lore and skill fragments — Study them "
+               f"one by one. Start with: {names}.")))
+
+    # Two copies of the same lore combine into the next level.
+    frag_counts: dict[str, int] = {}
+    for s in _tabletop_stacks(state):
+        if s.entity_id.startswith("fragment"):
+            frag_counts[s.entity_id] = frag_counts.get(s.entity_id, 0) + s.quantity
+    pairs = [e for e, n in sorted(frag_counts.items()) if n >= 2]
+    if pairs:
+        names = "、".join(f"「{display_name(e)}」" for e in pairs) \
+            if get_language() == "zh" else ", ".join(display_name(e) for e in pairs)
+        out.append(Suggestion(64,
+            tr("有同名秘传可合成升级", "Duplicate lore can combine upward"),
+            tr(f"{names}各有两张——两张一起放入「研读」（配理性/博闻检定）合成高 2 级的秘传。",
+               f"Two copies each of {names} — Study the pair (with Reason/Erudition "
+               "for the check) to fuse them two levels higher.")))
+
+    # Secret Histories lore is the key to expeditions.
+    ids = {s.entity_id for s in _tabletop_stacks(state)}
+    has_sh = any(e.startswith("fragmentsecrethistories") for e in ids)
+    has_vault = any(has_aspect(e, "vault") for e in ids)
+    if has_sh and not has_vault:
+        sh = next(e for e in sorted(ids) if e.startswith("fragmentsecrethistories"))
+        out.append(Suggestion(61,
+            tr(f"用「{display_name(sh)}」探索，寻找藏宝地",
+               f"Explore with {display_name(sh)} to locate a vault"),
+            tr("秘史秘传放入「探索」会揭示对应等级的藏宝地——远征是中期秘传、工具和古币的主要来源。",
+               "Secret Histories lore in Explore reveals a vault of its level — "
+               "expeditions are the mid-game's main source of lore, tools and coins.")))
+
+    # Patrons and hirelings on the table deserve an evaluation.
+    for s in _tabletop_stacks(state):
+        if has_aspect(s.entity_id, "patron"):
+            out.append(Suggestion(62,
+                tr(f"赞助人「{display_name(s.entity_id)}」：可接委托",
+                   f"Patron {display_name(s.entity_id)}: commissions available"),
+                tr("「交谈」放入赞助人+对应系秘传可接论文委托（之后作业写论文换古币变现）；"
+                   "放入高阶秘史还会有故事线索。",
+                   "Talk with the patron plus lore of their aspect for a paper "
+                   "commission (Work writes it, auctions cash the Spintria); "
+                   "high Secret Histories lore opens story threads too.")))
+        elif has_aspect(s.entity_id, "hireling"):
+            out.append(Suggestion(55,
+                tr(f"雇员「{display_name(s.entity_id)}」在场",
+                   f"Hireling {display_name(s.entity_id)} on the table"),
+                tr("雇员是远征的最佳先锋——先派 TA + 1 资金侦察，损失不心疼；"
+                   "也可以在总部监禁为囚徒。闲置太久会离开。",
+                   "Hirelings make the best expedition vanguard — scout with them "
+                   "plus 1 Funds, losses don't hurt; they can also be imprisoned "
+                   "at your HQ. Idle too long and they leave.")))
+
+
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         _exile_rules(state, out)  # the Exile plays by its own rules
         return
     _rival_rules(state, out)          # tags itself: doom 0, early warning 1
     _tagged(_cult_rules, state, out, SPOILER_GUIDE)
+    _tagged(_midgame_rules, state, out, SPOILER_GUIDE)
     _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
