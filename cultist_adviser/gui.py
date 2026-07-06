@@ -51,6 +51,7 @@ def _save_settings(settings: dict):
 from .recorder import SessionRecorder
 from .review import ReviewWindow
 from . import updater
+from .backup import SaveBackupper
 
 POLL_MS = int(SAVE_POLL_INTERVAL * 1000)
 REDRAW_MS = 1000  # countdown re-render
@@ -198,6 +199,7 @@ class AdvisorApp:
         self.save_deadline = 0.0  # next guaranteed save, seconds after parsed_at
         self.was_paused = False
         self.recorder = SessionRecorder()
+        self.backupper = SaveBackupper()
         self.settings = _load_settings()
         lexicon.set_language(self.settings.get("language", "zh"))
         self.spoiler_level = int(self.settings.get("spoiler", SPOILER_GUIDE))
@@ -559,6 +561,8 @@ class AdvisorApp:
                     self.recorder.record(self.advice, self.state)
                 except OSError:
                     pass  # recording must never break the advisor
+                if self.settings.get("backup", True):
+                    self.backupper.backup(data, self.advice, ALERT_VERBS)
                 self._set_status()
                 self._render()
                 self._alert_sound()

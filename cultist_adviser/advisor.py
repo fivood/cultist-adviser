@@ -1416,26 +1416,64 @@ def _ascension_position(state: GameState):
     return best
 
 
+# The rival's ascension rite fires at 7 marks (L_ascension_rival, ascension.json).
+RIVAL_ASCEND_MARKS = 7
+
+
+def _rival_marks(s: ElementStack) -> int:
+    try:
+        return int(s.mutations.get("rivalmarks", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _rival_rules(state: GameState, out: list[Suggestion]):
-    ids = {s.entity_id for s in _all_stacks(state)}
-    long_soon = next((e for e in ids if e.endswith("_r_d")), None)
-    rival = next((e for e in ids if e.endswith("_r_c")), None)
-    if long_soon:
+    imminent, candidates = [], []
+    for s in _all_stacks(state):
+        if s.entity_id.endswith("_r_d"):
+            imminent.append(s)
+        elif s.entity_id.endswith("_r_c"):
+            candidates.append(s)
+    for s in imminent:
+        m = _rival_marks(s)
         out.append(Suggestion(165,
-            tr(f"「{display_name(long_soon)}」即将飞升！",
-               f"{display_name(long_soon)} is about to ascend!"),
+            tr(f"「{display_name(s.entity_id)}」即将飞升！（印记 {m}/{RIVAL_ASCEND_MARKS}）",
+               f"{display_name(s.entity_id)} is about to ascend! ({m}/{RIVAL_ASCEND_MARKS} marks)"),
             tr("对手先你一步就是败北结局。抢先完成飞升，或立刻用刃系手下暗杀（等级 10+ 必成，5-9 约七成）。",
                "If the rival ascends first, you lose. Race your own ascension, or send an Edge "
                "follower to kill them now (level 10+ always works, 5-9 about 70%)."),
             urgent=True))
-    elif rival:
-        out.append(Suggestion(90,
-            tr(f"对手「{display_name(rival)}」已成气候",
-               f"Rival {display_name(rival)} is gathering strength"),
-            tr("长生者候补会稳步推进自己的飞升。趁早处理：刃系手下暗杀，或加快自己的野心进度。",
-               "A would-be Long advances steadily toward their own ascension. Deal with them "
-               "early — an Edge follower's knife, or simply outpace them."),
-            spoiler=SPOILER_GUIDE))
+    for s in candidates:
+        m = _rival_marks(s)
+        if m >= RIVAL_ASCEND_MARKS - 2:
+            out.append(Suggestion(130,
+                tr(f"对手「{display_name(s.entity_id)}」只差 {RIVAL_ASCEND_MARKS - m} 张印记就要飞升",
+                   f"Rival {display_name(s.entity_id)} is {RIVAL_ASCEND_MARKS - m} mark(s) from ascending"),
+                tr(f"飞升印记 {m}/{RIVAL_ASCEND_MARKS}。别再等——刃系手下暗杀，或全力冲刺自己的终局。",
+                   f"Ascension marks {m}/{RIVAL_ASCEND_MARKS}. Stop waiting — the Edge knife, "
+                   "or sprint your own endgame."),
+                urgent=True))
+        else:
+            out.append(Suggestion(90,
+                tr(f"对手「{display_name(s.entity_id)}」已成气候（印记 {m}/{RIVAL_ASCEND_MARKS}）",
+                   f"Rival {display_name(s.entity_id)} is gathering strength "
+                   f"({m}/{RIVAL_ASCEND_MARKS} marks)"),
+                tr("长生者候补会稳步推进自己的飞升。趁早处理：刃系手下暗杀，或加快自己的野心进度。",
+                   "A would-be Long advances steadily toward their own ascension. Deal with them "
+                   "early — an Edge follower's knife, or simply outpace them."),
+                spoiler=SPOILER_GUIDE))
+    # Persistent progress line while any rival exists: name + stage + marks.
+    if imminent or candidates:
+        sep = "；" if get_language() == "zh" else "; "
+        tag_zh, tag_en = "（将飞升）", " (imminent)"
+        parts = []
+        for s in imminent + candidates:
+            tag = (tag_zh if get_language() == "zh" else tag_en) if s in imminent else ""
+            parts.append(f"{display_name(s.entity_id)} "
+                         f"{_rival_marks(s)}/{RIVAL_ASCEND_MARKS}{tag}")
+        out.append(Suggestion(13,
+            tr("长生者进度", "Rival progress"),
+            sep.join(parts), spoiler=SPOILER_GUIDE))
 
 
 def _cult_rules(state: GameState, out: list[Suggestion]):

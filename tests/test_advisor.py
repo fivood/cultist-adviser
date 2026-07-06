@@ -715,3 +715,39 @@ def test_use_hint_prefers_pairing_with_live_cards():
         assert "solo" in alone or "explore" in alone.lower() or "探索" in alone
     finally:
         km._recipes, km._uses = orig
+
+
+def test_rival_progress_tracking():
+    """Marks (rivalmarks mutation) show as X/7; near-threshold escalates."""
+    from cultist_adviser.advisor import advise as adv
+    st = state([verb("time", 55), card("victor_r_c")])
+    rc = next(t for t in st.tokens if t.entity_id == "victor_r_c")
+    rc.mutations = {"rivalmarks": 3}
+    subs = adv(st, spoiler=1).suggestions
+    assert any(s.priority == 90 for s in subs), "gathering-strength notice"
+    assert any(s.priority == 13 for s in subs), "persistent progress line"
+    rc.mutations = {"rivalmarks": 6}
+    subs = adv(st, spoiler=1).suggestions
+    assert any(s.priority == 130 and s.urgent for s in subs), "one mark away -> urgent"
+    assert not any(s.priority == 90 for s in subs)
+    # imminent stage keeps its 165 alert, marks included
+    st2 = state([verb("time", 55), card("victor_r_d")])
+    assert any(s.priority == 165 and s.urgent
+               for s in adv(st2, spoiler=0).suggestions)
+
+
+def test_save_backupper(tmp_path, monkeypatch):
+    from cultist_adviser import backup as bk
+    from cultist_adviser.advisor import Advice, VerbRow
+    monkeypatch.setattr(bk, "BACKUP_DIR", tmp_path)
+    b = bk.SaveBackupper()
+    calm = Advice(verbs=[VerbRow("work", "", 10)])
+    b.backup(b"one", calm, {"despair"})
+    assert len(list(tmp_path.glob("save_*.json"))) == 1
+    b.backup(b"two", calm, {"despair"})  # inside the routine gap -> skipped
+    assert len(list(tmp_path.glob("save_*.json"))) == 1
+    danger = Advice(verbs=[VerbRow("despair", "", 30)])
+    b.backup(b"three", danger, {"despair"})  # lethal verb onset -> immediate
+    assert len(list(tmp_path.glob("save_*_danger.json"))) == 1
+    b.backup(b"four", danger, {"despair"})  # persisting danger -> no repeat
+    assert len(list(tmp_path.glob("save_*_danger.json"))) == 1
