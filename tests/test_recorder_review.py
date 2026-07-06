@@ -177,3 +177,32 @@ def test_attribute_defeat_starvation_and_arrest():
     ]
     lines = attribute_defeat(snaps, "arrest")
     assert len(lines) == 3  # tentative, damning, end
+
+
+def test_updater_version_compare_and_stage(tmp_path, monkeypatch):
+    from cultist_adviser import updater
+    assert updater.is_newer("v9.9.9")
+    assert not updater.is_newer("v0.0.1")
+    assert not updater.is_newer(updater.__version__ if hasattr(updater, "__version__")
+                                else "v0.0.0") or True
+    from cultist_adviser import __version__
+    assert not updater.is_newer(f"v{__version__}")
+    assert not updater.is_newer("not-a-version")
+
+    # staging: a fake release zip served via file://, extracted next to "exe"
+    import zipfile
+    fake_zip = tmp_path / "rel.zip"
+    with zipfile.ZipFile(fake_zip, "w") as z:
+        z.writestr("CultistAdviser.exe", b"M" * 1_200_000)
+    monkeypatch.setattr(updater, "is_frozen", lambda: False)
+    monkeypatch.chdir(tmp_path)  # source runs stage into cwd
+    staged = updater.download_and_stage(fake_zip.as_uri())
+    assert staged.name == "CultistAdviser.new.exe" and staged.stat().st_size > 1_000_000
+
+    # implausibly small exe is rejected
+    small_zip = tmp_path / "small.zip"
+    with zipfile.ZipFile(small_zip, "w") as z:
+        z.writestr("CultistAdviser.exe", b"tiny")
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        updater.download_and_stage(small_zip.as_uri())

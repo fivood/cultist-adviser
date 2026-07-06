@@ -9,7 +9,9 @@ import re
 import time
 import zlib
 import tkinter as tk
-from tkinter import ttk
+import threading
+import webbrowser
+from tkinter import ttk, messagebox
 from pathlib import Path
 
 from . import __version__
@@ -48,6 +50,7 @@ def _save_settings(settings: dict):
         pass  # settings must never break the advisor
 from .recorder import SessionRecorder
 from .review import ReviewWindow
+from . import updater
 
 POLL_MS = int(SAVE_POLL_INTERVAL * 1000)
 REDRAW_MS = 1000  # countdown re-render
@@ -91,6 +94,17 @@ UI = {
                        "No startable recipe for this verb with the cards on the table."),
     "decay_line": ("衰变链：{}", "Decay chain: {}"),
     "decay_end": (" → 消失", " → gone"),
+    "update_avail": ("⬆ 新版本 {} 已发布 · 点击自动更新",
+                     "⬆ Update {} available · click to install"),
+    "update_confirm_title": ("更新到 {}", "Update to {}"),
+    "update_confirm": ("下载新版本并自动重启？\n\n更新内容：\n{}",
+                       "Download and restart to update?\n\nWhat's new:\n{}"),
+    "update_downloading": ("正在下载更新，完成后会自动重启…",
+                           "Downloading — the adviser restarts when done…"),
+    "update_failed": ("⬆ 更新失败 · 点击打开发布页手动下载",
+                      "⬆ Update failed · click to open the releases page"),
+    "update_source_run": ("源码运行请手动更新 · 已打开发布页",
+                          "Running from source — opened the releases page"),
     "tab_obtain": ("获得方式", "How to obtain"),
     "tab_uses": ("用途", "Uses"),
     "obtain_none": ("没有已知配方直接产出这张卡。", "No known recipe produces this card."),
@@ -229,6 +243,14 @@ class AdvisorApp:
                                       foreground="#666666", wraplength=520)
         # packed lazily in _render the first time a season line exists
 
+        self._update_info: dict | None = None
+        self.update_var = tk.StringVar()
+        self.update_label = ttk.Label(root, textvariable=self.update_var,
+                                      foreground="#1565c0", cursor="hand2",
+                                      wraplength=520)
+        self.update_label.bind("<Button-1>", self._start_update)
+        # packed by _show_update_banner when a newer release is found
+
         nb = ttk.Panedwindow(root, orient="vertical")
         nb.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         self._nb = nb
@@ -304,6 +326,57 @@ class AdvisorApp:
         self.status_var.set(_t("waiting"))
         self._poll()
         self._redraw_timers()
+        if self.settings.get("update_check", True):
+            threading.Thread(target=self._check_update, daemon=True).start()
+
+    # --- self-update ---
+
+    def _check_update(self):
+        info = updater.check_latest()
+        if info:
+            self._update_info = info
+            self.root.after(0, self._show_update_banner)
+
+    def _show_update_banner(self):
+        if not self._update_info:
+            return
+        self.update_var.set(_t("update_avail").format(self._update_info["tag"]))
+        if not self.update_label.winfo_manager():
+            self.update_label.pack(fill="x", padx=10, pady=(0, 2), before=self._nb)
+
+    def _start_update(self, _event=None):
+        info = self._update_info
+        if not info:
+            return
+        if info.get("failed"):
+            webbrowser.open(updater.RELEASES_PAGE)
+            return
+        notes = (info.get("notes") or "").strip()[:400]
+        if not messagebox.askyesno(_t("update_confirm_title").format(info["tag"]),
+                                   _t("update_confirm").format(notes or "…"),
+                                   parent=self.root):
+            return
+        if not updater.is_frozen():
+            webbrowser.open(updater.RELEASES_PAGE)
+            self.update_var.set(_t("update_source_run"))
+            return
+        self.update_var.set(_t("update_downloading"))
+        self.update_label.unbind("<Button-1>")
+
+        def work():
+            try:
+                updater.download_and_stage(info["url"])
+            except Exception:
+                info["failed"] = True
+                self.root.after(0, self._update_failed)
+                return
+            self.root.after(0, updater.apply_and_exit)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _update_failed(self):
+        self.update_var.set(_t("update_failed"))
+        self.update_label.bind("<Button-1>", self._start_update)
 
     # --- language ---
 

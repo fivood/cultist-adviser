@@ -1,4 +1,4 @@
-Cultist Adviser · 密教军师  v0.6.1
+Cultist Adviser · 密教军师  v0.7.0
 ====================================
 
 A read-only floating adviser for Cultist Simulator.
@@ -140,6 +140,14 @@ A. The adviser reads the local achievement file (also used
    reached the local file, launch the game once and Steam
    writes it down.
 
+Q. How do updates work?
+A. On launch the adviser asks GitHub once whether a newer
+   release exists (nothing else is sent). If so, a banner
+   appears under the top bar — click it to download and
+   the adviser restarts on the new version by itself. To
+   disable the check entirely, set "update_check": false
+   in settings.json next to the exe.
+
 Q. I'm lost and don't know what to do next.
 A. Read the "Current arc" line in the suggestions — the
    adviser infers your main quest from the board (found the
@@ -150,7 +158,9 @@ A. Read the "Current arc" line in the suggestions — the
 ------------------------------------------------
 4. Privacy & safety
 ------------------------------------------------
-- Fully offline; it never touches the network.
+- The only network access is a once-per-launch version
+  check against GitHub (disable with "update_check": false
+  in settings.json). Nothing about you or your game is sent.
 - Reads the save file only; never writes or edits it.
 - Creates just two cache jsons and a settings.json next to
   the exe — delete them to reset.
