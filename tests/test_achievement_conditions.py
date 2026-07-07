@@ -148,3 +148,64 @@ def test_achievement_hint_layer(monkeypatch, tmp_path):
     # but a cult whose achievement is already unlocked stays silent
     got = tops([card("skillreasona"), card("cultlantern_1"), card("funds", qty=6)])
     assert 11 not in got
+
+
+# ------------------------- a_ending_XvictoryYYY (Ever After × 21 lovers) ---
+
+@pytest.mark.parametrize("follower,venue,attr", [
+    ("tristan_b", "locationauctionhouse", "health"),      # power route
+    ("rose_b", "locationcabaret", "passion"),             # sensation
+    ("clovette_b", "locationcabaret", "passion"),         # change (DLC)
+    ("auclair_b", "locationstreetsstrange", "reason"),    # enlightenment
+])
+def test_ever_after_courtship_venue_matching(follower, venue, attr):
+    """Believer with follower_lustXXX aspect draws venue-specific courting
+    guidance; readiness elevates when venue + attribute already in hand."""
+    # Aware but not ready
+    got = tops([card("skillhealthb"), card("cultgrail_1"), card(follower),
+                card("funds", qty=6)])
+    assert 52 in got, "aware but not ready -> low-priority nudge"
+    # Ready
+    got = tops([card("skillhealthb"), card("cultgrail_1"), card(follower),
+                card(venue), card(attr), card("funds", qty=6)])
+    assert 66 in got, "venue + attribute in hand -> ready-to-court elevation"
+
+
+def test_ever_after_finale_warning_only_after_courtship():
+    """The 'don't add Passion' alarm fires once romantic interest exists AND
+    the player has reached the ascension stages where the finale matters."""
+    # Early ambition — no warning yet
+    got = tops([card("cultgrail_1"), card("ascensionsensationa"),
+                card("romanticinterest"), card("rose_c"), card("funds", qty=6)])
+    assert 59 not in got, "before dedication -> no finale warning"
+    # Dedicated -> warning present
+    got = tops([card("cultgrail_1"), card("ascensionsensationc"),
+                card("romanticinterest"), card("rose_c"), card("funds", qty=6)])
+    assert 59 in got, "at dedication -> finale warning"
+
+
+# ---------------------- a_ending_minor*victory_withrisen (6 endings) ---
+
+def test_with_risen_path_matches_state():
+    """Alive lover + late-game -> the setup nudge; corpse -> the rite nudge;
+    Risen -> the 'start ascension' nudge. Each stage retires the prior."""
+    late = [card("cultgrail_1"), card("ascensionsensationc"),
+            card("romanticinterest"), card("rose_c"), card("funds", qty=6)]
+    got = tops(late)
+    assert 35 in got, "step-1: guide toward killing the lover on expeditions"
+    got = tops(late + [card("corpse")])
+    assert 63 in got and 35 not in got, "step-2: corpse -> rite nudge"
+    got = tops(late + [card("spirit_wintera_moth")])
+    assert 60 in got, "step-3: risen ready -> start-ascension warning"
+
+
+def test_with_risen_gated_on_lover_and_stage():
+    """No romantic interest -> no with-Risen nudges at all (this is a route
+    that only makes sense once a lover exists)."""
+    got = tops([card("cultgrail_1"), card("ascensionsensationc"),
+                card("rose_c"), card("corpse"), card("funds", qty=6)])
+    assert 63 not in got and 35 not in got
+    # A random corpse before dedication also stays silent
+    got = tops([card("cultgrail_1"), card("ascensionsensationa"),
+                card("romanticinterest"), card("corpse"), card("funds", qty=6)])
+    assert 63 not in got

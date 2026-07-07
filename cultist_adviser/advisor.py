@@ -1838,6 +1838,127 @@ def _recruit_rules(state: GameState, out: list[Suggestion]):
             hint))
 
 
+# Follower lust aspect -> (venue element id, venue zh short, courting input,
+# input zh, ever-after ending path lore aspect). Comes from the game's own
+# talking_8_follower.json recipes A_talktofollower_locationXXX_lustYYY.
+LUST_VENUE = {
+    "follower_lustpower": ("locationauctionhouse", "拍卖行", "auction house",
+                            "health", "健康", "Health"),
+    "follower_lustsensation": ("locationcabaret", "蜕衣俱乐部", "Ecdysis Club",
+                                "passion", "激情", "Passion"),
+    "follower_lustchange": ("locationcabaret", "蜕衣俱乐部", "Ecdysis Club",
+                             "passion", "激情", "Passion"),
+    "follower_lustenlightenment": ("locationstreetsstrange", "月光下的怪街", "Streets Strange",
+                                    "reason", "理性", "Reason"),
+}
+
+
+def _ever_after_rules(state: GameState, out: list[Suggestion]):
+    """Ever After (21 marriage endings): the follower must first be courted at
+    a venue matching their lust aspect. Once romantic interest exists, the
+    ending fires when a summoned lover is met with Passion in the final rite."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    has_interest = "romanticinterest" in ids
+    # Late-game Ever-After warning: if a lover is drawn into an ascension rite,
+    # adding Passion turns the ascension into Ever After. Silent-loud warning.
+    on_ascension = _ascension_position(state)
+    if has_interest and on_ascension and on_ascension[1] in "cdef":
+        out.append(Suggestion(59,
+            tr("有恋人在场：飞升仪式中不要加激情",
+               "You have a lover: don't add Passion to the ascension rite"),
+            tr("飞升仪式最后一步的「决意」槽如果放入激情，会把飞升变成「共度余生」结局。"
+               "想要飞升就别加，想要共度余生就加。",
+               "The final rite's decision slot: adding Passion turns ascension "
+               "into Ever After. Skip Passion for ascension, add it for Ever After."),
+        ))
+    # Courtable followers on the table: name each one's venue and desire.
+    named: list[tuple[str, str, tuple]] = []
+    for s in _tabletop_stacks(state):
+        asp = element_aspects(s.entity_id)
+        # only followers/believers/disciples count as courtable
+        if not any(asp.get(k) for k in ("follower", "acquaintance")):
+            continue
+        for lust, meta in LUST_VENUE.items():
+            if asp.get(lust):
+                named.append((s.entity_id, lust, meta))
+                break
+    if not named or has_interest:
+        return  # if interest already exists, courting phase is over
+    # Group by venue to keep the tip short.
+    by_venue: dict[str, list[tuple[str, tuple]]] = {}
+    for eid, _lust, meta in named:
+        by_venue.setdefault(meta[0], []).append((eid, meta))
+    for venue_id, entries in by_venue.items():
+        meta = entries[0][1]
+        _, venue_zh, venue_en, _, input_zh, input_en = meta
+        who_zh = "、".join(display_name(e) for e, _ in entries)
+        who_en = ", ".join(display_name(e) for e, _ in entries)
+        # Do we already hold the venue + attribute?
+        ready = venue_id in ids and _qty_anywhere(state, meta[3])
+        pri = 66 if ready else 52
+        title_zh = f"追求「{who_zh}」：约到{venue_zh}"
+        title_en = f"Court {who_en}: invite them to the {venue_en}"
+        if ready:
+            title_zh = f"现在就能追求「{who_zh}」"
+            title_en = f"Ready to court {who_en} right now"
+        detail_zh = f"「交谈」= 追随者 + 「{display_name(venue_id)}」+ {input_zh}——" \
+                    f"成功后获得「有意」，之后 Talk 有意 + 追随者可正式开启恋爱。"
+        detail_en = (f"Talk = follower + {display_name(venue_id)} + {input_en}; "
+                     "success yields Interested, then Talk Interested + follower to "
+                     "start the affair.")
+        out.append(Suggestion(pri, tr(title_zh, title_en), tr(detail_zh, detail_en)))
+
+
+def _risen_rules(state: GameState, out: list[Suggestion]):
+    """The with-Risen path: raise your dead lover as a Burgeoning (Winter 4 +
+    Moth 2) or Shattered (Winter 4 + Edge 2) Risen and let the ascension rite
+    draw them in on its own."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    has_interest = "romanticinterest" in ids
+    pos = _ascension_position(state)
+    if not (has_interest and pos and pos[1] in "cdef"):
+        return
+    if "spirit_wintera_moth" in ids or "spirit_wintera_edge" in ids:
+        out.append(Suggestion(60,
+            tr("行尸已在场：直接开始飞升仪式",
+               "The Risen is on the table: start the ascension rite"),
+            tr("不要把行尸直接放进仪式——开启飞升仪式后它会被自动吸入，"
+               "手动放进去反而会被消耗掉。",
+               "Do NOT slot the Risen into the rite yourself — start ascension "
+               "and it will be drawn in automatically. Slotting manually consumes it."),
+        ))
+        return
+    has_corpse = any(has_aspect(e, "corpse") and not e.endswith(".exile")
+                     and not e.startswith(("corpse.furious", "corpse.luxurious",
+                                            "corpse.liminal", "corpse.horizon",
+                                            "corpse.splendid"))
+                     for e in ids)
+    if has_corpse:
+        out.append(Suggestion(63,
+            tr("有尸体：可以升为行尸，走「与行尸共飞升」路线",
+               "You have a corpse: raise a Risen for the with-Risen ending"),
+            tr("在「作业」用仪式（仁母仪式/鸦餍仪式/海飨仪式）+ 尸体 + 冬 4 + 蛾 2 = 抽芽行尸；"
+               "换成冬 4 + 刃 2 = 破碎行尸。之后开启飞升仪式，行尸会被自动吸入达成结局。",
+               "Work: a rite (Mother's Mercy / Crow's Quenching / Sea's Feasting) + "
+               "corpse + Winter 4 + Moth 2 = Burgeoning Risen; Winter 4 + Edge 2 = "
+               "Shattered. Then start ascension; the Risen is drawn in on its own."),
+        ))
+        return
+    # No corpse yet, and lover is alive: the guide's trick is to let them die
+    # on solo expeditions and NOT heal their injuries.
+    out.append(Suggestion(35,
+        tr("「与行尸共飞升」路线：需要恋人化为行尸",
+           "The with-Risen path: your lover needs to become a Risen"),
+        tr("送恋人单独去探索藏宝地（不带其他手下），失败会使她/他受伤；"
+           "不要在「交谈」中治疗伤口，死去后即得尸体，用仪式（含冬 4 + 蛾 2 或 冬 4 + 刃 2）升为行尸。"
+           "注意尸体和行尸有时限，其他准备做完再进行这步。",
+           "Send your lover on solo expeditions (no other followers); failures wound "
+           "them. Do NOT heal them in Talk. When they die you get a corpse — use a "
+           "rite (Winter 4 + Moth 2, or Winter 4 + Edge 2) to raise the Risen. "
+           "Corpses and Risen are on timers; do this last."),
+    ))
+
+
 def _exalt_rules(state: GameState, out: list[Suggestion]):
     """Exaltation readiness: a Disciple whose aspect matches your cult can be
     raised to the highest rank when Talk totals 12 of that aspect (the
@@ -2045,6 +2166,8 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_long_rules, state, out, SPOILER_GUIDE)
     _tagged(_recruit_rules, state, out, SPOILER_GUIDE)
     _tagged(_exalt_rules, state, out, SPOILER_GUIDE)
+    _tagged(_ever_after_rules, state, out, SPOILER_GUIDE)
+    _tagged(_risen_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
     _achievement_rules(state, out)    # tags itself: guidance 1
