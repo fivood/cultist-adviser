@@ -7,11 +7,14 @@ Cached to knowledge_cache.json — delete it to rebuild after a game update.
 """
 import json
 import re
+from pathlib import Path
 
 from .config import PROJECT_DIR
 from .lexicon import CONTENT_DIR, _lenient_json, display_name, recipe_name, tr
 
 CACHE_PATH = PROJECT_DIR / "knowledge_cache.json"
+BUNDLED_CACHE = Path(__file__).parent / "knowledge_cache_bundled.json"
+_HEALTHY_MIN = 300  # a live index of 1300+ recipes is normal
 # The verbs every base-game run has; routes through other verbs are
 # profession-specific and get demoted unless the player's save has them.
 BASE_VERBS = {"work", "study", "dream", "explore", "talk", "time"}
@@ -128,7 +131,8 @@ def _parse_expeditions() -> tuple[dict, dict]:
         return vaults, counters
     tier_re = re.compile(
         r"^explorevault(.+)_(?:high|mid|low)(%s)$" % "|".join(LORE_ASPECT_NAMES))
-    for path in folder.glob("explore_vault*.json"):
+    for path in list(folder.glob("explore_vault*.json")) + \
+            list(folder.glob("explore_obstacles_*.json")):
         try:
             data = _lenient_json(path.read_text(encoding="utf-8-sig"))
         except Exception:
@@ -228,11 +232,11 @@ def _load():
             obtain.setdefault(eid, []).append(i)
         for eid in r["req"]:
             uses.setdefault(eid, []).append(i)
-    _recipes, _obtain, _uses = recipes, obtain, uses
-    _el_aspects, _decays, _lifetimes, _el_slots = _parse_elements()
-    _verb_slots = _parse_verb_slots()
-    _vaults, _counters = _parse_expeditions()
-    if recipes:
+    if len(recipes) >= _HEALTHY_MIN:
+        _recipes, _obtain, _uses = recipes, obtain, uses
+        _el_aspects, _decays, _lifetimes, _el_slots = _parse_elements()
+        _verb_slots = _parse_verb_slots()
+        _vaults, _counters = _parse_expeditions()
         try:
             CACHE_PATH.write_text(json.dumps({"v": 5,
                                               "recipes": recipes, "obtain": obtain,
@@ -247,6 +251,23 @@ def _load():
                                              ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
+        return
+    # Fallback: bundled cache from build time.
+    if BUNDLED_CACHE.exists():
+        try:
+            cache = json.loads(BUNDLED_CACHE.read_text(encoding="utf-8"))
+            if cache.get("v") == 5:
+                _recipes, _obtain = cache["recipes"], cache["obtain"]
+                _el_aspects = cache["aspects"]
+                _decays, _lifetimes = cache["decays"], cache["lifetimes"]
+                _verb_slots, _el_slots = cache["verb_slots"], cache["el_slots"]
+                _vaults, _counters = cache["vaults"], cache["counters"]
+                _uses = cache["uses"]
+                return
+        except Exception:
+            pass
+    # Nothing to fall back on — leave the empty partial as-is.
+    _recipes, _obtain, _uses = recipes, obtain, uses
 
 
 def _way_text(r: dict) -> str:

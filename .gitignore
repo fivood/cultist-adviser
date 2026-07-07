@@ -10,3 +10,5 @@ release/
 *.spec
 *.egg-info/
 cultist_adviser/save_backups/
+cultist_adviser/lexicon_cache_bundled.json
+cultist_adviser/knowledge_cache_bundled.json

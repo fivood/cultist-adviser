@@ -314,3 +314,87 @@ def test_updater_mirror_disable(monkeypatch, tmp_path):
     with _p.raises(OSError):
         updater._fetch("https://api.github.com/x", timeout=1, use_mirrors=False)
     assert tried == ["https://api.github.com/x"]
+
+
+def test_lexicon_fallback_to_bundled_cache(tmp_path, monkeypatch):
+    """When the live game folder is unreachable, load the bundled cache so
+    Chinese names still show. Root cause of the 'fragmentedge' raw-id bug."""
+    from cultist_adviser import lexicon
+    # Pretend the user has no cache and no game folder.
+    empty_game = tmp_path / "no_game"
+    monkeypatch.setattr(lexicon, "CACHE_PATH", tmp_path / "user_cache.json")
+    monkeypatch.setattr(lexicon, "CONTENT_DIR", empty_game / "content")
+    # Prepare a fake bundled cache.
+    bundled = tmp_path / "bundled.json"
+    payload = {
+        "sections": list(lexicon.SECTIONS),
+        "entities": {"testid": {"zh": "测试名", "en": "Test Name"}},
+        "recipes": {},
+    }
+    import json
+    bundled.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(lexicon, "BUNDLED_CACHE", bundled)
+    lexicon._load()
+    lexicon.set_language("zh")
+    assert lexicon.display_name("testid") == "测试名"
+    lexicon.set_language("en")
+    assert lexicon.display_name("testid") == "Test Name"
+
+
+def test_lexicon_prefers_healthy_user_cache_over_bundled(tmp_path, monkeypatch):
+    """A large user cache wins over the bundled one (the user's game may be
+    newer than the release-time snapshot)."""
+    from cultist_adviser import lexicon
+    import json
+    fresh = {"sections": list(lexicon.SECTIONS),
+             "entities": {f"e{i}": {"zh": f"新{i}"} for i in range(600)},
+             "recipes": {}}
+    bundled = {"sections": list(lexicon.SECTIONS),
+               "entities": {"e0": {"zh": "旧"}},
+               "recipes": {}}
+    cp = tmp_path / "user.json"
+    bp = tmp_path / "bundled.json"
+    cp.write_text(json.dumps(fresh, ensure_ascii=False), encoding="utf-8")
+    bp.write_text(json.dumps(bundled, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(lexicon, "CACHE_PATH", cp)
+    monkeypatch.setattr(lexicon, "BUNDLED_CACHE", bp)
+    lexicon._load()
+    lexicon.set_language("zh")
+    assert lexicon.display_name("e0") == "新0"
+
+
+def test_lexicon_falls_through_partial_user_cache(tmp_path, monkeypatch):
+    """A tiny/broken user cache falls through to the bundled one instead of
+    the raw-id abyss."""
+    from cultist_adviser import lexicon
+    import json
+    tiny = {"sections": list(lexicon.SECTIONS),
+            "entities": {"only": {"zh": "唯一"}}, "recipes": {}}
+    bundled = {"sections": list(lexicon.SECTIONS),
+               "entities": {"other": {"zh": "别的"}}, "recipes": {}}
+    cp = tmp_path / "user.json"
+    bp = tmp_path / "bundled.json"
+    cp.write_text(json.dumps(tiny, ensure_ascii=False), encoding="utf-8")
+    bp.write_text(json.dumps(bundled, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(lexicon, "CACHE_PATH", cp)
+    monkeypatch.setattr(lexicon, "BUNDLED_CACHE", bp)
+    monkeypatch.setattr(lexicon, "CONTENT_DIR", tmp_path / "no_game" / "content")
+    lexicon._load()
+    lexicon.set_language("zh")
+    # The tiny user cache is discarded, bundled takes over.
+    assert lexicon.display_name("other") == "别的"
+    assert lexicon.display_name("only") == "only"  # not in bundled
+
+
+def test_review_robust_to_malformed_snapshots():
+    """Old recorder versions omitted fields; the review must not crash on
+    truncated data — that would break every review after a version upgrade."""
+    from cultist_adviser.review import extract_events, attribute_defeat
+    malformed = [{"t": 0},                                   # missing verbs/resources
+                 {},                                          # completely empty
+                 {"verbs": None, "resources": None},          # explicit None
+                 {"t": 5, "ending": "weirdending"}]           # missing verbs
+    events = extract_events(malformed)
+    assert len(events) >= 1
+    lines = attribute_defeat(malformed, "despairending")
+    assert isinstance(lines, list)  # no crash, may be empty

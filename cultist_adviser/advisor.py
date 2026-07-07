@@ -1282,7 +1282,8 @@ SUBVERT_SOURCE = {"lantern": "moth", "forge": "lantern", "edge": "forge",
                   "moth": "grail"}
 
 ASPECT_ZH = {"edge": "刃", "forge": "铸", "grail": "杯", "heart": "心",
-             "knock": "启", "lantern": "灯", "moth": "蛾", "winter": "冬"}
+             "knock": "启", "lantern": "灯", "moth": "蛾", "winter": "冬",
+             "secrethistories": "秘史"}
 
 
 def _book_language(entity_id: str):
@@ -1673,6 +1674,97 @@ def _mansus_door_rules(state: GameState, out: list[Suggestion]):
                f"is {best[0]} at {have}.")))
 
 
+# All 10 rite cards, ordered by whether they consume the follower/tool/etc.
+# Sourced from elements with the "ritual" aspect (see knowledge._el_aspects).
+ALL_RITES = (
+    "ritefollowerconsumeinfluence",   # Sunset Rite
+    "ritetoolconsumeingredient",      # Sea's Feasting
+    "ritetoolconsumeinfluence",       # Map's Edge
+    "ritetoolfollowerconsumelore",    # Watchman's Rite
+    "ritefollowerconsumeingredient",  # Mother's Mercy
+    "riteinfluenceconsumeingredient", # Crow's Quenching
+    "ritefollowerconsumetool",        # Rebel Star
+    "ritetoolconsumefollower",        # Crucible Soul (consumes follower)
+    "riteinfluenceconsumefollower",   # Beast's Anointing (consumes follower)
+    "riteconsumetoolingredientfollowerinfluence",  # Rite Intercalate (endgame)
+)
+
+
+def _rite_inventory_rules(state: GameState, out: list[Suggestion]):
+    """Pin the ritual toolbox: which rites are in hand and which are missing.
+    A rite is a permanent tool (no cooldown), so ownership is the whole story."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    owned = [r for r in ALL_RITES if r in ids]
+    if not owned:
+        return  # no rites yet — the cult/lore/ascension rules cover this stage
+    missing = [r for r in ALL_RITES if r not in ids]
+    if get_language() == "zh":
+        listing = "、".join(display_name(r) for r in owned)
+        detail = f"已有：{listing}。"
+        if missing:
+            gap = "、".join(display_name(r) for r in missing[:6])
+            detail += f"仍缺：{gap}。仪式在「作业」使用，可召唤灵体（冬4+蛾2/刃2 起，"
+            detail += "阶越高召唤越强），也是飞升仪式和活尸复原的核心工具。"
+        else:
+            detail += "全部 10 种仪式齐备。"
+    else:
+        listing = ", ".join(display_name(r) for r in owned)
+        detail = f"Owned: {listing}. "
+        if missing:
+            gap = ", ".join(display_name(r) for r in missing[:6])
+            detail += (f"Missing: {gap}. Rites go into Work — they summon spirits "
+                       "(Winter 4 + Moth/Edge 2 for Risen, higher aspects call "
+                       "stronger summons) and drive the ascension and rite-of-renewal.")
+        else:
+            detail += "All 10 rites collected."
+    out.append(Suggestion(20,
+        tr(f"仪式清单：{len(owned)}/{len(ALL_RITES)}",
+           f"Rites: {len(owned)}/{len(ALL_RITES)}"),
+        detail))
+
+
+def _vault_inventory_rules(state: GameState, out: list[Suggestion]):
+    """List every vault on the table with its obstacle counters and reward
+    tier — the tester asked how to read the vault cards they'd collected."""
+    vaults = [s.entity_id for s in _tabletop_stacks(state)
+              if has_aspect(s.entity_id, "vault")]
+    if len(vaults) < 2:
+        return  # a single vault is already handled by the expedition rule
+    # Region -> approximate lore tier (from strategy_knowledge.md's field notes).
+    TIER = {"capital": 2, "shires": 4, "continent": 6, "landbeyondforest": 8,
+            "rendingmountains": 10, "loneandlevelsands": 12, "eveningisles": 14}
+    lines = []
+    for v in vaults[:8]:
+        # region prefix -> tier
+        region = next((r for r in TIER if r in v), "")
+        tier = TIER.get(region)
+        obstacles = vault_obstacles(v)
+        if obstacles:
+            counters: set[str] = set()
+            for obs in obstacles:
+                counters.update(obstacle_counters(obs))
+            if get_language() == "zh":
+                cnames = "/".join(ASPECT_ZH.get(a, a) for a in sorted(counters)) or "?"
+                line = f"「{display_name(v)}」（{tier} 级）克：{cnames}" if tier else \
+                       f"「{display_name(v)}」克：{cnames}"
+            else:
+                cnames = "/".join(sorted(counters)) or "?"
+                line = f"{display_name(v)} (tier {tier}, beaten by {cnames})" if tier else \
+                       f"{display_name(v)} (beaten by {cnames})"
+        else:
+            line = f"「{display_name(v)}」" if get_language() == "zh" else display_name(v)
+        lines.append(line)
+    detail = ("、" if get_language() == "zh" else "; ").join(lines)
+    detail += tr("。产出按等级递增：2 级出普通秘传/工具，8+ 出高阶秘传和 12 级工具，"
+                 "14 级藏点稀有品质保底。",
+                 ". Rewards scale with tier: 2 yields common lore/tools; 8+ gives "
+                 "higher lore and level-12 tools; tier-14 sites guarantee rare loot.")
+    out.append(Suggestion(19,
+        tr(f"藏宝地清单：{len(vaults)} 个待远征",
+           f"Vaults on table: {len(vaults)} to explore"),
+        detail))
+
+
 def _mansus_expedition_rules(state: GameState, out: list[Suggestion]):
     ids = {s.entity_id for s in _all_stacks(state)}
     riddle = next((e for e in ids if e in STAG_RIDDLE_LORE), None)
@@ -1959,30 +2051,128 @@ def _risen_rules(state: GameState, out: list[Suggestion]):
     ))
 
 
-def _exalt_rules(state: GameState, out: list[Suggestion]):
-    """Exaltation readiness: a Disciple whose aspect matches your cult can be
-    raised to the highest rank when Talk totals 12 of that aspect (the
-    Disciple's own levels count toward it)."""
-    ids = {s.entity_id for s in _all_stacks(state)}
+# Real thresholds verified against culting.json:
+#   recruit    (_a → _b): cult + acquaintance + level-1 lore of that aspect
+#   promote    (_b → _c): cult + follower       + total 7 aspect
+#   exalt      (_c → _d): cult + disciple       + total 21 aspect (Seer path)
+# Followers carry their own aspect (_b=2, _c=5), so lore only needs to top up.
+RECRUIT_BAR = 1
+PROMOTE_BAR = 7
+EXALT_BAR = 21
+
+
+def _cult_aspects(state: GameState) -> set[str]:
+    return {e[len("cult"):].split("_")[0]
+            for e in (s.entity_id for s in _all_stacks(state))
+            if e.startswith("cult")}
+
+
+def _best_tool_aspect(state: GameState, aspect: str) -> int:
+    """Highest single-tool level of an aspect on the table (rites excluded —
+    they're separate slots and don't stack into the lore slot)."""
+    best = 0
+    for s in _tabletop_stacks(state):
+        asp = element_aspects(s.entity_id)
+        if asp.get("tool") and not asp.get("ritual"):
+            v = asp.get(aspect, 0)
+            if v > best:
+                best = v
+    return best
+
+
+def _follower_rank_rules(state: GameState, out: list[Suggestion]):
+    """Cover all three follower promotions: acquaintance → believer → disciple
+    → exalted. Each fires when the cult + lore + optional tool can meet the
+    bar, counting the follower's own aspect levels (as the game does)."""
+    cult_aspects = _cult_aspects(state)
+    if not cult_aspects:
+        return  # no cult yet — the founding rule owns this stage
     levels = _lore_levels(state)
     for s in _tabletop_stacks(state):
         asp = element_aspects(s.entity_id)
-        if not asp.get("disciple") or asp.get("exalted"):
+        display = display_name(s.entity_id)
+        if asp.get("exalted"):
             continue
+        # Acquaintance -> Believer: needs a cult of ANY aspect + level-1 lore.
+        if asp.get("acquaintance"):
+            available = [a for a in cult_aspects if levels.get(a, 0) >= RECRUIT_BAR]
+            if available:
+                zh_asp = "/".join(ASPECT_ZH[a] for a in sorted(available))
+                en_asp = "/".join(sorted(available))
+                out.append(Suggestion(62,
+                    tr(f"可以招募「{display}」入教",
+                       f"{display} is ready to recruit"),
+                    tr(f"「交谈」= 教团 + 熟人 + 1 阶 {zh_asp} 秘传（任一系即可）。"
+                       "入教后成为 2 阶该系信徒。",
+                       f"Talk: cult + acquaintance + level-1 {en_asp} lore (any). "
+                       "Recruits to a level-2 Believer of that aspect.")))
+            continue
+        # Believer or Disciple: what aspect do they carry?
         aspect = next((a for a in LORE_KINDS if asp.get(a)), "")
-        if not aspect or not any(e.startswith(f"cult{aspect}") for e in ids):
+        if not aspect:
+            continue
+        # The player must have a matching cult (or Secret Histories cult can
+        # promote any aspect below Exalted, per game rules).
+        cult_ok = aspect in cult_aspects or (
+            "secrethistories" in cult_aspects and not asp.get("disciple") \
+            and not asp.get("potential"))
+        if not cult_ok:
             continue
         own = asp.get(aspect, 0)
-        need = max(0, 12 - own)
-        if levels.get(aspect, 0) >= need:
-            out.append(Suggestion(65,
-                tr(f"可以擢升「{display_name(s.entity_id)}」了",
-                   f"{display_name(s.entity_id)} is ready for exaltation"),
-                tr(f"「交谈」放入教团 + 门徒 + {ASPECT_ZH[aspect]}系秘传（含门徒自身共 12 阶，"
-                   f"可配同系工具）。擢升后是全游戏最强的手下。",
-                   f"Talk: cult + Disciple + {aspect} lore totalling 12 with the "
-                   "Disciple's own levels (a matching tool helps). Exalted "
-                   "followers are the strongest in the game.")))
+        # Disciple with potential -> ready for Exaltation.
+        if asp.get("disciple") and asp.get("potential"):
+            need = max(0, EXALT_BAR - own)
+            lore_lvl = levels.get(aspect, 0)
+            tool_lvl = _best_tool_aspect(state, aspect)
+            if aspect in cult_aspects and lore_lvl + tool_lvl >= need:
+                out.append(Suggestion(65,
+                    tr(f"可以擢升「{display}」为最高级手下",
+                       f"{display} is ready for exaltation"),
+                    tr(f"「交谈」= 教团 + 门徒 + {ASPECT_ZH[aspect]}系秘传（门徒自身 5 阶 + "
+                       f"你手上的秘传合计 {EXALT_BAR} 阶，同系工具可分担）。"
+                       "擢升后是全游戏最强的手下。",
+                       f"Talk: cult + Disciple + {aspect} lore (own 5 + lore in hand "
+                       f"totalling {EXALT_BAR}; a matching tool helps). Exalted "
+                       "followers are the strongest in the game.")))
+            elif aspect in cult_aspects:
+                short = need - (lore_lvl + tool_lvl)
+                out.append(Suggestion(38,
+                    tr(f"擢升「{display}」还差 {short} 阶 {ASPECT_ZH[aspect]}",
+                       f"Exalting {display} needs {short} more {aspect}"),
+                    tr(f"门徒自身 {own} + 秘传最高 {lore_lvl} + 工具最高 {tool_lvl} = "
+                       f"{own+lore_lvl+tool_lvl}，共差 {short} 阶到 {EXALT_BAR}。",
+                       f"Disciple {own} + best lore {lore_lvl} + best tool {tool_lvl} = "
+                       f"{own+lore_lvl+tool_lvl}, {short} short of {EXALT_BAR}.")))
+            continue
+        # Believer -> Disciple: 7 aspect total. Believer already carries 2.
+        if asp.get("follower") and not asp.get("disciple"):
+            need = max(0, PROMOTE_BAR - own)
+            lore_lvl = levels.get(aspect, 0)
+            tool_lvl = _best_tool_aspect(state, aspect)
+            if lore_lvl + tool_lvl >= need:
+                out.append(Suggestion(64,
+                    tr(f"可以晋升「{display}」为门徒",
+                       f"{display} is ready to promote to Disciple"),
+                    tr(f"「交谈」= 教团 + 信徒 + {ASPECT_ZH[aspect]}系秘传（信徒自身 2 阶 + "
+                       f"你手上的秘传合计 {PROMOTE_BAR} 阶，同系工具可分担）。晋升后成为 5 阶门徒。",
+                       f"Talk: cult + Believer + {aspect} lore (own 2 + lore in hand "
+                       f"totalling {PROMOTE_BAR}; a matching tool helps). Promotes to "
+                       "a level-5 Disciple.")))
+            else:
+                short = need - (lore_lvl + tool_lvl)
+                out.append(Suggestion(37,
+                    tr(f"晋升「{display}」还差 {short} 阶 {ASPECT_ZH[aspect]}",
+                       f"Promoting {display} needs {short} more {aspect}"),
+                    tr(f"信徒自身 2 + 秘传 {lore_lvl} + 工具 {tool_lvl} = "
+                       f"{2+lore_lvl+tool_lvl}，共差 {short} 阶到 {PROMOTE_BAR}。",
+                       f"Believer 2 + lore {lore_lvl} + tool {tool_lvl} = "
+                       f"{2+lore_lvl+tool_lvl}, {short} short of {PROMOTE_BAR}.")))
+
+
+def _exalt_rules(state: GameState, out: list[Suggestion]):
+    # Backwards-compatible shim: _follower_rank_rules now covers exaltation
+    # too. Keep the function so external callers don't break.
+    _follower_rank_rules(state, out)
 
 
 def _long_rules(state: GameState, out: list[Suggestion]):
@@ -2003,7 +2193,10 @@ def _long_rules(state: GameState, out: list[Suggestion]):
            "path to a final confrontation.")))
 
 
-SCAR_ASPECTS = ("edge", "forge", "grail", "heart", "knock",
+# Priest DLC scar-locks: 7 aspects (no Knock — the priest IS the door), sourced
+# from the game's lockscar* elements. The endgame recipe needs
+# openedlockscar: 6 + lockscar: 1 = 7 total (DLC_PRIEST_recipes.json).
+SCAR_ASPECTS = ("edge", "forge", "grail", "heart",
                 "lantern", "moth", "winter")
 
 
@@ -2029,13 +2222,15 @@ def _priest_scar_rules(state: GameState, out: list[Suggestion]):
     if state.active_legacy != "priest" and \
             _qty_anywhere(state, "priestjob") == 0:
         return
-    scars = {a: _qty_anywhere(state, f"scar_{a}") for a in SCAR_ASPECTS}
+    # Both closed (lockscarX) and opened (openedlockscarX) count toward the 7.
+    scars = {a: _qty_anywhere(state, f"lockscar{a}")
+                 + _qty_anywhere(state, f"openedlockscar{a}")
+             for a in SCAR_ASPECTS}
     have = sum(1 for a, n in scars.items() if n)
     if not have:
         return
     made = [ASPECT_ZH[a] for a, n in scars.items() if n]
-    missing = [ASPECT_ZH[a] for a in SCAR_ASPECTS
-               if a not in ("secrethistories",) and scars[a] == 0]
+    missing = [ASPECT_ZH[a] for a in SCAR_ASPECTS if scars[a] == 0]
     made_zh = "、".join(made)
     made_en = ", ".join(a for a, n in scars.items() if n)
     if have >= 7:
@@ -2281,18 +2476,137 @@ def _midgame_rules(state: GameState, out: list[Suggestion]):
                "Secret Histories lore in Explore reveals a vault of its level — "
                "expeditions are the mid-game's main source of lore, tools and coins.")))
 
-    # Patrons and hirelings on the table deserve an evaluation.
+    _commission_rules(state, out)
+    _patron_hireling_rules(state, out)
+
+
+# Patron ↔ commission aspects — sourced from the game's talking_1_commissions.json
+# fulfil recipes. Poppy commissions live on a helper card (poppycommission),
+# so the patron cardinality maps commissionaspect → payer card.
+COMMISSION_PAYERS = {
+    "secrethistories": ("aladim", "伊本·阿迪姆博士", "Dr al-Adim"),
+    "lantern": ("aladim", "伊本·阿迪姆博士", "Dr al-Adim"),
+    "forge": ("bechet", "贝谢女士", "Mme Bechet"),
+    "grail": ("bechet", "贝谢女士", "Mme Bechet"),
+    "moth": ("bechet", "贝谢女士", "Mme Bechet"),
+    "edge": ("jannings", "雅宁斯伯爵", "Count Jannings"),
+    "heart": ("jannings", "雅宁斯伯爵", "Count Jannings"),
+    "knock": ("poppycommission", "波比·拉舍莱斯的委托", "Poppy's commission"),
+    "winter": ("poppycommission", "波比·拉舍莱斯的委托", "Poppy's commission"),
+}
+# Commission tier suffix -> lore level required in Work to write the paper
+# (from work_write_articles.json: "" = level 2, "b" = 4, "c" = 6).
+COMMISSION_TIER = {"": (2, "a", "泛述", "brief"),
+                   "b": (4, "b", "详尽", "considered"),
+                   "c": (6, "c", "极其详尽", "in-depth")}
+
+
+def _commission_rules(state: GameState, out: list[Suggestion]):
+    """Full patron commission loop: interact patron -> commission book -> Work
+    writes paper -> Talk delivers to patron for Spintria + attribute lesson.
+    Each stage draws a specific tip so time-pinched Dancer / Ghoul runs can
+    decide whether the detour is worth an action slot."""
+    ids = {s.entity_id for s in _tabletop_stacks(state)}
+
+    # STAGE 1 — patron on the table but no commission yet.
+    patrons_present = []
     for s in _tabletop_stacks(state):
-        if has_aspect(s.entity_id, "patron"):
+        if not has_aspect(s.entity_id, "patron"):
+            continue
+        patrons_present.append(s.entity_id)
+        # Which aspects can this patron commission? (map inversion; strip the
+        # game's "_ready" suffix so both states of the same patron match).
+        base_id = s.entity_id[:-len("ready")] if s.entity_id.endswith("ready") \
+            else s.entity_id
+        their_aspects = [asp for asp, (payer, *_) in COMMISSION_PAYERS.items()
+                         if payer == base_id or payer.startswith(base_id)]
+        if not their_aspects:
+            # Story-only patrons (Sulochana, Naenia, Echidna...) still deserve
+            # a generic mention — they carry lore threads even without commissions.
             out.append(Suggestion(62,
-                tr(f"赞助人「{display_name(s.entity_id)}」：可接委托",
-                   f"Patron {display_name(s.entity_id)}: commissions available"),
-                tr("「交谈」放入赞助人+对应系秘传可接论文委托（之后作业写论文换古币变现）；"
-                   "放入高阶秘史还会有故事线索。",
-                   "Talk with the patron plus lore of their aspect for a paper "
-                   "commission (Work writes it, auctions cash the Spintria); "
-                   "high Secret Histories lore opens story threads too.")))
-        elif has_aspect(s.entity_id, "hireling"):
+                tr(f"故事人物「{display_name(s.entity_id)}」在场",
+                   f"Story figure {display_name(s.entity_id)} is here"),
+                tr("交谈可能推进主线（无常规委托，但可能给出秘传/物品）。",
+                   "Talking may advance the main story (no standard commission).")))
+            continue
+        # Skip the offer nudge if a matching commission book already exists.
+        pending = any(any(f"commissionarticle{a}" in i for a in their_aspects)
+                      for i in ids)
+        if pending:
+            continue
+        zh_asp = "/".join(ASPECT_ZH.get(a, a) for a in their_aspects[:3])
+        en_asp = "/".join(their_aspects[:3])
+        out.append(Suggestion(62,
+            tr(f"赞助人「{display_name(s.entity_id)}」：可接委托",
+               f"Patron {display_name(s.entity_id)}: commissions available"),
+            tr(f"「交谈」= 赞助人 + {zh_asp}系秘传 → 得对应委托书。委托系别越高、投入秘传等级越高，"
+               "最终报酬（古币）也越高。忙碌职业（舞者/教士）可以先无视，专注主业。",
+               f"Talk = patron + {en_asp} lore → get a commission book. Higher-level "
+               "lore yields more valuable Spintria. Time-pinched Dancer / Priest runs "
+               "can skip this and stay on their main job.")))
+
+    # STAGE 2 — commission book in hand, ready to Work-write.
+    for i in list(ids):
+        if not i.startswith("commissionarticle"):
+            continue
+        # extract aspect and tier
+        rest = i[len("commissionarticle"):]
+        tier_suffix = ""
+        for suffix in ("c", "b"):
+            if rest.endswith(suffix):
+                tier_suffix, rest = suffix, rest[:-1]
+                break
+        aspect = rest
+        if aspect not in COMMISSION_PAYERS:
+            continue
+        need_lvl, paper_suffix, zh_tier, en_tier = COMMISSION_TIER[tier_suffix]
+        aspect_zh = ASPECT_ZH.get(aspect, aspect)
+        # Do we already hold enough lore to write it?
+        lore_ok = _lore_levels(state).get(aspect, 0) >= need_lvl \
+            or _best_tool_aspect(state, aspect) >= need_lvl
+        prio = 74 if lore_ok else 60
+        out.append(Suggestion(prio,
+            tr(f"委托待完成：撰写{zh_tier}论文（{aspect_zh}系）",
+               f"Commission open: write a {en_tier} paper ({aspect}). "),
+            tr(f"「作业」= 「{display_name(i)}」 + 理性 + {need_lvl} 阶 {aspect_zh} 秘传"
+               f"（或同系工具达 {need_lvl} 阶）→ 得 {aspect_zh} 论文。60 秒。",
+               f"Work = {display_name(i)} + Reason + {aspect} lore level {need_lvl} "
+               f"(or a matching tool at {need_lvl}) → yields a {aspect} paper. 60s.")))
+
+    # STAGE 3 — paper written, ready to hand in.
+    # Real paper ids end in a/b/c and match one of the 9 commission aspects;
+    # exclude engine markers like "articles_playerauthored".
+    for i in list(ids):
+        if not i.startswith("article") or "_" in i:
+            continue
+        if not (i.endswith("a") or i.endswith("b") or i.endswith("c")):
+            continue
+        aspect = i[len("article"):-1]
+        if aspect not in COMMISSION_PAYERS:
+            continue
+        payer, payer_zh, payer_en = COMMISSION_PAYERS[aspect]
+        aspect_zh = ASPECT_ZH.get(aspect, aspect)
+        payer_present = payer in ids or f"{payer}ready" in ids
+        prio = 76 if payer_present else 58
+        detail_zh = (f"「交谈」= 「{payer_zh}」 + 论文 → 得报酬"
+                     "（古币可去拍卖行换资金，也可作为「铸」系工具消耗；"
+                     "还会送秘氛 + 属性课程）。")
+        detail_en = (f"Talk = {payer_en} + paper → payoff (Spintria cashes at "
+                     "the auction house or serves as a Forge-aspect tool; you "
+                     "also get Mystique + an attribute lesson).")
+        if not payer_present:
+            detail_zh = (f"完成的论文在手，但{payer_zh}不在场——" + detail_zh)
+            detail_en = (f"Paper ready but {payer_en} not on the table — " + detail_en)
+        out.append(Suggestion(prio,
+            tr(f"可交论文：{aspect_zh} 论文 → {payer_zh}",
+               f"Paper to deliver: {aspect} paper → {payer_en}"),
+            tr(detail_zh, detail_en)))
+
+
+def _patron_hireling_rules(state: GameState, out: list[Suggestion]):
+    """Hirelings on the table get a quick expedition-vanguard reminder."""
+    for s in _tabletop_stacks(state):
+        if has_aspect(s.entity_id, "hireling"):
             out.append(Suggestion(55,
                 tr(f"雇员「{display_name(s.entity_id)}」在场",
                    f"Hireling {display_name(s.entity_id)} on the table"),
@@ -2312,6 +2626,8 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_midgame_rules, state, out, SPOILER_GUIDE)
     _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
+    _tagged(_rite_inventory_rules, state, out, SPOILER_GUIDE)
+    _tagged(_vault_inventory_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
     _tagged(_long_rules, state, out, SPOILER_GUIDE)
     _tagged(_recruit_rules, state, out, SPOILER_GUIDE)

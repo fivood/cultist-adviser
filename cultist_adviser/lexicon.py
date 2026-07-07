@@ -83,31 +83,56 @@ def _harvest(root: Path, lang_key: str, sections: tuple, out: dict):
                         out.setdefault(str(item["id"]).lower(), {})[lang_key] = str(item["label"])
 
 
+# Minimum entities we expect from a healthy build — used to detect cache/game
+# folders that harvested to an empty or partial state (typically because the
+# user's game path wasn't auto-detected). About 2200 entities are normal on
+# base game + all DLC; anything under a few hundred means fallback is needed.
+_HEALTHY_MIN = 500
+
+BUNDLED_CACHE = Path(__file__).parent / "lexicon_cache_bundled.json"
+
+
+def _load_from_cache(path: Path) -> tuple[dict, dict] | None:
+    try:
+        cache = json.loads(path.read_text(encoding="utf-8"))
+        if cache.get("sections") != list(SECTIONS):
+            return None
+        return cache["entities"], cache["recipes"]
+    except Exception:
+        return None
+
+
 def _load():
     global _lexicon, _recipes
-    if CACHE_PATH.exists():
-        try:
-            cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-            if cache.get("sections") != list(SECTIONS):
-                raise ValueError("cache built with different sections")
-            _lexicon = cache["entities"]
-            _recipes = cache["recipes"]
-            return
-        except Exception:
-            pass
+    # 1. User-local cache (built from their game folder)
+    cached = _load_from_cache(CACHE_PATH) if CACHE_PATH.exists() else None
+    if cached and len(cached[0]) >= _HEALTHY_MIN:
+        _lexicon, _recipes = cached
+        return
+    # 2. Try harvesting live from the detected game folder
     lex: dict[str, dict[str, str]] = {}
     rec: dict[str, dict[str, str]] = {}
     for root, key in ((CONTENT_DIR / "core", "en"), (CONTENT_DIR / "loc_zh-hans", "zh")):
         _harvest(root, key, SECTIONS, lex)
         _harvest(root, key, ("recipes",), rec)
-    _lexicon, _recipes = lex, rec
-    if lex:
+    if len(lex) >= _HEALTHY_MIN:
+        _lexicon, _recipes = lex, rec
         try:
             CACHE_PATH.write_text(json.dumps({"sections": list(SECTIONS),
                                               "entities": lex, "recipes": rec},
                                              ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
+        return
+    # 3. Fallback: the release-time bundled cache (may lag one game version but
+    # spares users with an unusual install location from raw-id chinese).
+    bundled = _load_from_cache(BUNDLED_CACHE) if BUNDLED_CACHE.exists() else None
+    if bundled:
+        _lexicon, _recipes = bundled
+        return
+    # 4. Nothing worked — leave whatever we harvested; display_name falls
+    # through to the raw id and the GUI can surface the diagnostic.
+    _lexicon, _recipes = lex, rec
 
 
 def _lookup(table: dict, key: str) -> str:

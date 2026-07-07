@@ -242,6 +242,14 @@ def attribute_defeat(snaps: list[dict], ending_id: str) -> list[str]:
     counter, when the countdown started. Empty for wins/unknown endings."""
     if len(snaps) < 2:
         return []
+    # Older recorder versions may omit fields; normalize so callers below
+    # can rely on the shape.
+    for s in snaps:
+        s.setdefault("t", 0)
+        if s.get("verbs") is None:
+            s["verbs"] = []
+        if s.get("resources") is None:
+            s["resources"] = {}
     t0 = snaps[0]["t"]
     zh = lexicon.get_language() == "zh"
 
@@ -298,10 +306,19 @@ def attribute_defeat(snaps: list[dict], ending_id: str) -> list[str]:
 
 
 def extract_events(snaps: list[dict]) -> list[dict]:
-    """Diff consecutive snapshots into (t, kind, payload) events."""
+    """Diff consecutive snapshots into (t, kind, payload) events. Robust to
+    truncated / older-format snapshots — missing fields fall back to defaults."""
     events = []
     prev = None
     for s in snaps:
+        # Fill in fields old recorder versions may have omitted so downstream
+        # code can rely on their shape.
+        s.setdefault("t", 0)
+        if s.get("verbs") is None:
+            s["verbs"] = []
+        if s.get("resources") is None:
+            s["resources"] = {}
+        s.setdefault("urgent", [])
         if prev is None:
             events.append({"t": s["t"], "kind": "start",
                            "who": s.get("character", "?"), "legacy": s.get("legacy", "")})
