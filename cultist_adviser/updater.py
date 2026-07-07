@@ -7,6 +7,12 @@ script swaps them after this process exits and relaunches.
 
 Only the frozen exe self-updates; source runs just get the notice.
 The check can be disabled with "update_check": false in settings.json.
+
+GitHub is intermittently blocked in mainland China. We first try a
+direct connection; on failure we walk a fallback list of URL-prefix
+mirrors (settings.json "update_mirrors" wins, then the built-in list).
+Mirrors accept the full GitHub URL appended to their base and reverse-
+proxy it, which is the de-facto convention for public GH proxies.
 """
 import json
 import os
@@ -18,10 +24,57 @@ import zipfile
 from pathlib import Path
 
 from . import __version__
+from .config import PROJECT_DIR
 
 RELEASES_API = "https://api.github.com/repos/fivood/cultist-adviser/releases/latest"
 RELEASES_PAGE = "https://github.com/fivood/cultist-adviser/releases/latest"
+SETTINGS_PATH = PROJECT_DIR / "settings.json"
+# Reasonably stable public GH proxies as of 2026. Users can override with
+# "update_mirrors" in settings.json (list or single string).
+DEFAULT_MIRRORS = (
+    "https://ghfast.top/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.net/",
+)
 _UA = {"User-Agent": f"cultist-adviser/{__version__}"}
+
+
+def _mirrors() -> list[str]:
+    """Ordered mirror bases: user's settings first, then the built-ins.
+    Each base is a URL prefix that, followed by a full github.com URL,
+    reverse-proxies it — e.g. 'https://ghfast.top/https://github.com/…'."""
+    try:
+        s = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        s = {}
+    custom = s.get("update_mirrors") or []
+    if isinstance(custom, str):
+        custom = [custom]
+    seen: dict[str, None] = {}
+    for m in list(custom) + list(DEFAULT_MIRRORS):
+        m = str(m).strip()
+        if m and not m.endswith("/"):
+            m += "/"
+        if m and m not in seen:
+            seen[m] = None
+    return list(seen)
+
+
+def _fetch(url: str, timeout: float, use_mirrors: bool = True) -> bytes:
+    """GET url, direct first; on failure fall back through the mirror list.
+    Raises the last exception if every attempt fails."""
+    errors: list[Exception] = []
+    attempts = [url]
+    if use_mirrors:
+        attempts += [m + url for m in _mirrors()]
+    for candidate in attempts:
+        try:
+            req = urllib.request.Request(candidate, headers=_UA)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except Exception as e:
+            errors.append(e)
+    raise errors[-1] if errors else RuntimeError("no attempts made")
 
 
 def _ver_tuple(tag: str) -> tuple:
@@ -39,9 +92,7 @@ def check_latest(timeout: float = 6.0) -> dict | None:
     """{tag, url, notes} of the latest release, or None (offline/error/current).
     Never raises — callers run this on a background thread at startup."""
     try:
-        req = urllib.request.Request(RELEASES_API, headers=_UA)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = json.loads(_fetch(RELEASES_API, timeout).decode("utf-8"))
         tag = data.get("tag_name", "")
         if not is_newer(tag):
             return None
@@ -65,9 +116,7 @@ def download_and_stage(url: str, timeout: float = 120.0,
     """Download the release zip and extract the new exe next to the current
     one as CultistAdviser.new.exe. Returns the staged path; raises on failure."""
     exe_dir = Path(sys.executable).parent if is_frozen() else Path.cwd()
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        payload = resp.read()
+    payload = _fetch(url, timeout)
     if expected_size and len(payload) != expected_size:
         raise RuntimeError(f"truncated download: {len(payload)}/{expected_size} bytes")
     tmp = Path(tempfile.gettempdir()) / "cultist_adviser_update.zip"

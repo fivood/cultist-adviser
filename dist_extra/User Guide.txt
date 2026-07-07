@@ -1,4 +1,4 @@
-Cultist Adviser · 密教军师  v0.11.0
+Cultist Adviser · 密教军师  v0.11.1
 ====================================
 
 A read-only floating adviser for Cultist Simulator.
@@ -157,6 +157,14 @@ A. On launch the adviser asks GitHub once whether a newer
    the adviser restarts on the new version by itself. To
    disable the check entirely, set "update_check": false
    in settings.json next to the exe.
+
+Q. Updates fail from mainland China / behind a firewall.
+A. The adviser tries a direct connection first, then falls back
+   through built-in URL-prefix mirrors (ghfast.top, gh-proxy.com,
+   ghproxy.net). To add your own, edit settings.json next to the
+   exe: {"update_mirrors": ["https://your-mirror.example/"]}.
+   The mirror base is a prefix that reverse-proxies any GitHub URL
+   appended to it. A list is tried in order.
 
 Q. I'm lost and don't know what to do next.
 A. Read the "Current arc" line in the suggestions — the

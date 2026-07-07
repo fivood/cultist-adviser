@@ -1,4 +1,4 @@
-密教军师 · Cultist Adviser  v0.11.0
+密教军师 · Cultist Adviser  v0.11.1
 ====================================
 
 《密教模拟器》(Cultist Simulator) 的只读建议悬浮窗。
@@ -127,6 +127,15 @@ A. 启动时军师会向 GitHub 查询一次是否有新版（除此之外
    不发送任何内容）。有新版时顶栏下方出现蓝色横幅，点击
    即自动下载并重启到新版本。想彻底关闭检查，在 exe 同
    目录 settings.json 里加 "update_check": false。
+
+Q. 大陆用户 GitHub 更新失败/太慢
+A. 军师会自动尝试直连 GitHub → 内置反代镜像（ghfast.top、
+   gh-proxy.com、ghproxy.net）依次回退。如果都不通，可在
+   exe 同目录 settings.json 里加自定义镜像：
+     {"update_mirrors": ["https://your-mirror.example/"]}
+   镜像必须支持"URL 前置"型反代（把完整 GitHub URL 拼在后
+   面即可），公开镜像自行搜索"github 加速"关键词。也支持
+   传入镜像数组，会按顺序依次尝试。
 
 Q. 迷茫了，不知道现在该干嘛
 A. 看建议面板里的"当前阶段"一行——军师会按局面自动判定

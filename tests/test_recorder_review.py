@@ -257,3 +257,60 @@ def test_achievement_guides_parse_and_match():
         assert set(g) <= set(defs)
         assert len(g) >= 80  # 83 at the time of writing
         assert all(v.strip() for v in g.values())
+
+
+def test_updater_mirror_fallback(monkeypatch, tmp_path):
+    """Direct fetch failing must trigger the mirror list; user settings win
+    over built-ins; mirrors are URL-prefix reverse proxies."""
+    from cultist_adviser import updater
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        '{"update_mirrors": "https://my-mirror.example/"}', encoding="utf-8")
+    monkeypatch.setattr(updater, "SETTINGS_PATH", settings)
+    mirrors = updater._mirrors()
+    # user's mirror first, then built-ins, all with trailing slash
+    assert mirrors[0] == "https://my-mirror.example/"
+    for m in updater.DEFAULT_MIRRORS:
+        assert (m if m.endswith("/") else m + "/") in mirrors
+
+    tried: list[str] = []
+
+    def fake_urlopen(req, timeout=6.0):
+        tried.append(req.full_url)
+        # succeed only when prefixed with the user's mirror
+        if req.full_url.startswith("https://my-mirror.example/"):
+            class R:
+                def read(self): return b"OK"
+                def __enter__(self): return self
+                def __exit__(self, *a): pass
+            return R()
+        raise OSError("blocked")
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
+    payload = updater._fetch("https://api.github.com/x", timeout=1)
+    assert payload == b"OK"
+    # first attempt is direct, second is the user's mirror
+    assert tried[0] == "https://api.github.com/x"
+    assert tried[1] == "https://my-mirror.example/https://api.github.com/x"
+
+
+def test_updater_mirror_disable(monkeypatch, tmp_path):
+    """settings 'update_mirrors': [] leaves the fallback list empty — user can
+    opt out of the mirror behavior if their direct connection is fine."""
+    from cultist_adviser import updater
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"update_mirrors": []}', encoding="utf-8")
+    monkeypatch.setattr(updater, "SETTINGS_PATH", settings)
+    # An empty user list still falls through to built-ins by design.
+    assert updater._mirrors(), "empty user list falls through to built-ins"
+    # A direct-only path exists: pass use_mirrors=False
+    tried: list[str] = []
+
+    def fake_urlopen(req, timeout=6.0):
+        tried.append(req.full_url)
+        raise OSError("blocked")
+    monkeypatch.setattr(updater.urllib.request, "urlopen", fake_urlopen)
+    import pytest as _p
+    with _p.raises(OSError):
+        updater._fetch("https://api.github.com/x", timeout=1, use_mirrors=False)
+    assert tried == ["https://api.github.com/x"]
