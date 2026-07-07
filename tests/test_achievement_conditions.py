@@ -209,3 +209,98 @@ def test_with_risen_gated_on_lover_and_stage():
     got = tops([card("cultgrail_1"), card("ascensionsensationa"),
                 card("romanticinterest"), card("corpse"), card("funds", qty=6)])
     assert 63 not in got
+
+
+# --------------------------------- Priest DLC (a_ending_minorknockvictory
+# and a_ending_minormarevictory) ---
+
+@pytest.mark.parametrize("scars,expect_priority", [
+    (["scar_lantern"], 64),                                      # early
+    (["scar_lantern", "scar_heart", "scar_moth"], 70),          # mare-ready
+    (["scar_edge","scar_forge","scar_grail","scar_heart",
+      "scar_knock","scar_lantern","scar_moth"], 76),            # mother-ready
+])
+def test_priest_scar_progression(scars, expect_priority):
+    got = tops([card("priestjob"), card("skillhealthb")]
+               + [card(s) for s in scars] + [card("funds", qty=5)],
+               legacy="priest")
+    assert expect_priority in got
+
+
+# --------------------------------- Ghoul DLC (a_ending_minorwintervictory
+# and a_ending_minorcrownedgrowthvictory / Fruitfulness) ---
+
+def test_ghoul_route_gates_on_temptation():
+    # Naenia handoff nudge only when temptation + fleeting both on table
+    got = tops([card("temptation.remembrance"), card("fleeting"),
+                card("funds", qty=5)], legacy="ghoul")
+    assert 80 in got
+    # random legacy without ghoul markers -> silent
+    got = tops([card("fleeting"), card("funds", qty=5)])
+    assert 80 not in got
+
+
+def test_ghoul_graveyard_mouth_tracks_mutation():
+    def mut(eid, muts):
+        t = card(eid)
+        t.mutations = muts
+        return t
+    # low value: quiet
+    got = tops([mut("dedication.remembrance", {"ghoul.hunger": 2}),
+                card("funds", qty=5)], legacy="ghoul")
+    assert 72 not in got and 150 not in got
+    # 3-4 range: informational tracker
+    got = tops([mut("dedication.remembrance", {"ghoul.hunger": 3}),
+                card("funds", qty=5)], legacy="ghoul")
+    assert 72 in got and 150 not in got
+    # 5: high-priority warning, non-urgent
+    got = tops([mut("dedication.remembrance", {"ghoul.hunger": 5}),
+                card("funds", qty=5)], legacy="ghoul")
+    assert 150 in got and not got[150].urgent
+    # 6: urgent — one Ambitions season ends it
+    got = tops([mut("dedication.remembrance", {"ghoul.hunger": 6}),
+                card("funds", qty=5)], legacy="ghoul")
+    assert 150 in got and got[150].urgent
+
+
+# --------------------------------- Exile DLC (obscurityvictory* + wolf) ---
+
+@pytest.mark.parametrize("comfort,tier_marker", [
+    (12, "宁静"),   # <20
+    (22, "安适"),   # 20-29
+    (35, "罕见快乐"),  # 30+
+])
+def test_exile_obscurity_tiers(comfort, tier_marker):
+    got = tops([card("temptation.obscurity"),
+                card("obscurity", qty=7),
+                card("comfort", qty=comfort),
+                card("funds", qty=5)], legacy="exile")
+    assert 76 in got and tier_marker in got[76].title
+
+
+def test_exile_foe_wound_tracker():
+    # early wound stack: informational
+    got = tops([card("temptation.obscurity"), card("wound.foe", qty=2),
+                card("funds", qty=5)], legacy="exile")
+    assert 58 in got
+    # late: kill-close warning
+    got = tops([card("temptation.obscurity"), card("wound.foe", qty=5),
+                card("funds", qty=5)], legacy="exile")
+    assert 90 in got
+    # unstanchable counts too
+    got = tops([card("temptation.obscurity"),
+                card("wound.foe", qty=4), card("wound.foe.unstanchable"),
+                card("funds", qty=5)], legacy="exile")
+    assert 90 in got
+
+
+def test_dlc_rules_dont_leak_to_base():
+    """The DLC route rules must not fire for aspirant runs — 92 tests kept
+    passing before this file grew, so guard against accidental leakage."""
+    # priest scar sanity: scar cards outside a priest run
+    got = tops([card("scar_lantern"), card("skillhealthb"),
+                card("funds", qty=5)])
+    assert 64 not in got and 70 not in got
+    # exile foe wound outside exile
+    got = tops([card("wound.foe", qty=5), card("funds", qty=5)])
+    assert 58 not in got and 90 not in got

@@ -2003,9 +2003,159 @@ def _long_rules(state: GameState, out: list[Suggestion]):
            "path to a final confrontation.")))
 
 
+SCAR_ASPECTS = ("edge", "forge", "grail", "heart", "knock",
+                "lantern", "moth", "winter")
+
+
+def _mutation_value(state: GameState, entity_id: str, key: str) -> int:
+    """Read a mutation counter off a card in state (e.g. ghoul.hunger on
+    dedication.remembrance). Returns the max seen across all copies."""
+    best = 0
+    for s in _all_stacks(state):
+        if s.entity_id != entity_id:
+            continue
+        try:
+            v = int((s.mutations or {}).get(key, 0))
+        except (TypeError, ValueError):
+            continue
+        if v > best:
+            best = v
+    return best
+
+
+def _priest_scar_rules(state: GameState, out: list[Suggestion]):
+    """Priest DLC endgame: 7 scar-locks. The Mother's Arms rite fires when all
+    are fed into a 24-Knock Work rite. The Mare's ending kills you at 3."""
+    if state.active_legacy != "priest" and \
+            _qty_anywhere(state, "priestjob") == 0:
+        return
+    scars = {a: _qty_anywhere(state, f"scar_{a}") for a in SCAR_ASPECTS}
+    have = sum(1 for a, n in scars.items() if n)
+    if not have:
+        return
+    made = [ASPECT_ZH[a] for a, n in scars.items() if n]
+    missing = [ASPECT_ZH[a] for a in SCAR_ASPECTS
+               if a not in ("secrethistories",) and scars[a] == 0]
+    made_zh = "、".join(made)
+    made_en = ", ".join(a for a, n in scars.items() if n)
+    if have >= 7:
+        out.append(Suggestion(76,
+            tr("伤疤锁齐了：可以尝试母亲结局",
+               "All scar-locks in hand: pursue The Mother's Arms"),
+            tr("在「作业」用不消耗工具的仪式（魂之埚/地图之疆/海飨/守夜人）+ 22 阶启，"
+               "然后逐个把 7 张伤疤锁投入即可达成结局。",
+               "Work a tool-preserving rite (Crucible Soul / Map's Edge / Sea's "
+               "Feasting / Watchman) + 22 total Knock, then feed all 7 scar-locks "
+               "in one by one.")))
+    elif have >= 3:
+        out.append(Suggestion(70,
+            tr(f"伤疤锁进度：{have}/7（已成：{made_zh}）",
+               f"Scar-locks: {have}/7 ({made_en})"),
+            tr(f"想走「牝马」结局：3 张之后停手挂机等病死；想「母亲」结局：继续凑齐 7 张再飞升。"
+               f"缺：{'、'.join(missing)}。",
+               f"Mare's ending: stop at 3 and let sickness kill you. Mother's Arms: "
+               f"collect all 7. Missing: {', '.join(missing)}.")))
+    else:
+        out.append(Suggestion(64,
+            tr(f"伤疤锁进度：{have}/7", f"Scar-locks: {have}/7"),
+            tr("配方：作业 + 「就任于宁静教区」 + 健康 + 10 阶秘传（非启/秘史）+ 热忱 → 吸入躁动 → 投入训诫。"
+               "各系训诫：灯=博闻·铸=古铜币·刃=伤口·冬=病痛·心=活力·杯=饥饿·蛾=灵感。每张永久损失 1 健康。",
+               "Work: parish + Health + level-10 lore (not Knock/SH) + Fervour, absorb "
+               "Restlessness, add the discipline. Disciplines: Lantern=Erudition, "
+               "Forge=antique coin, Edge=Injury, Winter=Affliction, Heart=Vitality, "
+               "Grail=Hunger, Moth=Glimmering. Each costs 1 Health permanently.")))
+
+
+def _ghoul_route_rules(state: GameState, out: list[Suggestion]):
+    """Ghoul DLC: track the Graveyard Mouth counter (ghoul.hunger mutation on
+    dedication.remembrance). Each Ambitions season adds 1; studying the
+    formula + dedication + a corpse subtracts 1. At 7 the game ends with
+    Fruitfulness. So it's both a route AND an accidental-loss risk."""
+    if state.active_legacy != "ghoul" \
+            and not _qty_anywhere(state, "temptation.remembrance") \
+            and not _qty_anywhere(state, "dedication.remembrance"):
+        return
+    if _qty_anywhere(state, "dedication.remembrance"):
+        gm = _mutation_value(state, "dedication.remembrance", "ghoul.hunger")
+        if gm >= 5:
+            out.append(Suggestion(150,
+                tr(f"墓地之口已 {gm}/7——再来一次野心时节就是结局！",
+                   f"Graveyard Mouth is {gm}/7 — one more Ambitions season and it ends!"),
+                tr("想要「硕果累累」结局：等下个野心时节；不想要就立刻研读洗波音灵药+追奉+人类尸体降 1 点。",
+                   "For the Fruitfulness ending, let the next Ambitions season fire. "
+                   "To avoid it: Study the Elixir + dedication + a human corpse to "
+                   "shed one point NOW."),
+                urgent=gm >= 6))
+        elif gm >= 3:
+            out.append(Suggestion(72,
+                tr(f"墓地之口进度：{gm}/7", f"Graveyard Mouth: {gm}/7"),
+                tr("每个野心时节 +1，研读洗波音灵药+追奉+人类尸体 -1。"
+                   "「淡白至极的画作」结局需要研读 9 种残骸+司辰回忆凑齐 9 色。",
+                   "Ambitions +1, Elixir study -1. The Palest Painting ending needs "
+                   "9 remnants studied with the dedication to gather all 9 hues.")))
+    elif _qty_anywhere(state, "temptation.remembrance") \
+            and _qty_anywhere(state, "fleeting"):
+        out.append(Suggestion(80,
+            tr("向挽歌儿小姐给一瞬追忆开启食尸鬼路线",
+               "Give Fleeting Reminiscence to Miss Naenia to open the Ghoul route"),
+            tr("交谈 = 挽歌儿小姐 + 一瞬追忆 → 得配方：洗波音灵药？"
+               "接着研读该配方 + 诱惑：铭记 + 人类尸体 + 资金 + 激情 → 升为追奉，配方也升级。",
+               "Talk Miss Naenia + Fleeting -> Formula: Elixir Zeboim?. Study the "
+               "formula + Temptation: Remembrance + a corpse + Funds + Passion to "
+               "upgrade both to Dedication.")))
+
+
+def _exile_route_rules(state: GameState, out: list[Suggestion]):
+    """Exile DLC: obscurity/comfort tiers (obscurityvictoryabc) and foe wounds
+    tracker (obscurityvictory*_foeslain, or Kinship via Amsterdam Velvet)."""
+    if not (state.active_legacy or "").startswith("exile"):
+        return
+    comfort = _qty_anywhere(state, "comfort")
+    obscurity = _qty_anywhere(state, "obscurity")
+    if obscurity >= 5 and _qty_anywhere(state, "temptation.obscurity"):
+        tier = "宁静(<20)" if comfort < 20 else \
+               ("安适(20-29)" if comfort < 30 else "罕见快乐(30+)")
+        tier_en = "quiet (<20)" if comfort < 20 else \
+                  ("comfortable (20-29)" if comfort < 30 else "rare and happy (30+)")
+        out.append(Suggestion(76,
+            tr(f"可以隐居飞升：舒适度 {comfort} = {tier}结局",
+               f"Ready to retire: comfort {comfort} = {tier_en} ending"),
+            tr("交谈 = 诱惑：逃脱 + 7 张隐秘。杀过大敌可再拿一份「一件来自大敌的战利品」结局。",
+               "Talk Temptation: Escape + 7 Obscurity. Killing the foe first upgrades "
+               "the ending to the '_foeslain' variant with a trophy.")))
+    elif _qty_anywhere(state, "temptation.obscurity"):
+        out.append(Suggestion(56,
+            tr(f"隐居进度：舒适 {comfort} / 隐秘 {obscurity}",
+               f"Retirement track: comfort {comfort} / obscurity {obscurity}"),
+            tr("获得隐秘：旅行到偏远地或「舍弃」痕迹+2 张有利欺瞒卡。舒适主要靠购买办公室/别墅场地。"
+               "三档结局：<20 宁静、20-29 安适、30+ 罕见快乐。",
+               "Obscurity: travel to Remote or relinquish Trace + 2 Assists-Deception "
+               "cards. Comfort comes mostly from buying offices/villas. Three tiers: "
+               "<20 quiet, 20-29 comfortable, 30+ rare and happy.")))
+    foe_wounds = _qty_anywhere(state, "wound.foe") + _qty_anywhere(state, "wound.foe.unstanchable")
+    if foe_wounds >= 5:
+        out.append(Suggestion(90,
+            tr(f"大敌已伤 {foe_wounds}/7 处：击杀在即",
+               f"The foe has {foe_wounds}/7 wounds: kill is close"),
+            tr("最后一道伤口必须来自「使用」栏（神圣武器+刃秘传），盟友之死不算。"
+               "击杀后获得战利品可升级为 _foeslain 结局。",
+               "The final wound must come from Use (sacred weapon + Edge lore) — allies "
+               "falling in defense don't count. Kill him for a trophy that upgrades "
+               "the ending to _foeslain.")))
+    elif foe_wounds >= 2:
+        out.append(Suggestion(58,
+            tr(f"大敌已受伤 {foe_wounds}/7", f"Foe has {foe_wounds}/7 wounds"),
+            tr("造成伤口：使用栏放神圣武器（比德之刃产不易愈之伤更好）+ 刃秘传；"
+               "两者同放必定伤敌。追随者防御他也会受伤，但最后一道必须自己动手。",
+               "Wounding: Use a sacred weapon (Biedde's Blade lasts longer) + Edge lore; "
+               "both together guarantees. Followers defending can wound him too, but the "
+               "seventh must come from Use, not an ally.")))
+
+
 def _exile_rules(state: GameState, out: list[Suggestion]):
     """The Exile's own survival loop (DLC_EXILE recipes): wounds kill, the
     Reckoners' servants strip your obscurity, traces draw the hunt."""
+    _exile_route_rules(state, out)
     wounds = _qty_anywhere(state, "damage.exile")
     if wounds:
         out.append(Suggestion(
@@ -2168,6 +2318,8 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_exalt_rules, state, out, SPOILER_GUIDE)
     _tagged(_ever_after_rules, state, out, SPOILER_GUIDE)
     _tagged(_risen_rules, state, out, SPOILER_GUIDE)
+    _tagged(_priest_scar_rules, state, out, SPOILER_GUIDE)
+    _tagged(_ghoul_route_rules, state, out, SPOILER_GUIDE)
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
     _achievement_rules(state, out)    # tags itself: guidance 1
