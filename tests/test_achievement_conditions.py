@@ -439,3 +439,110 @@ def test_commission_stage1_silenced_when_book_already_pending():
     # 62 (offer) suppressed; 74 or 60 (write) fires instead
     assert 62 not in got
     assert 74 in got or 60 in got
+
+
+# --------------- endgame threshold breakdown + summoning menu ---
+
+def test_endgame_checklist_states_50_bar_for_major_victory():
+    """Prime-lore threshold gained context: 36 minor / 50 major (Apostle) /
+    27 with-Risen. Content must mention the applicable bar."""
+    # 30 lore — short of 36
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
+                card(frag("lantern", 12)), card(frag("lantern", 8)),
+                card(frag("lantern", 6)), card(frag("lantern", 4)),
+                card("funds", qty=5)])
+    assert 70 in got and "30" in got[70].detail
+    # 50 lore — major
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
+                card(frag("lantern", 12)), card(frag("lantern", 12)),
+                card(frag("lantern", 12)), card(frag("lantern", 12)),
+                card(frag("lantern", 2)), card("funds", qty=5)])
+    assert 70 in got and "50" in got[70].detail
+    # 27 with Risen + lover
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
+                card("romanticinterest"), card("spirit_wintera_moth"),
+                card(frag("lantern", 12)), card(frag("lantern", 8)),
+                card(frag("lantern", 6)), card(frag("lantern", 2)),
+                card("funds", qty=5)])
+    assert 70 in got and "27" in got[70].detail
+
+
+def test_summonable_menu_gates_on_rite_and_lists_reachable():
+    """Menu appears only with a rite card in hand; reachable summons are
+    listed, near-misses show the exact shortfall."""
+    from cultist_adviser.lexicon import display_name
+    # No rite -> silent
+    got = tops([card(frag("lantern", 6)), card("fragmentknock"),
+                card("fragmentedge"), card("funds", qty=5)])
+    assert 17 not in got
+    # Rite + winter 4 + moth 2 -> Burgeoning Risen ready; Shattered near-miss
+    got = tops([card("ritefollowerconsumeingredient"),
+                card(frag("winter", 4)),
+                card("fragmentmoth"), card("corpse"),
+                card("funds", qty=5)])
+    assert 17 in got
+    assert display_name("spirit_wintera_moth") in got[17].detail
+
+
+# --------------------------------- proactive route rescue rules ---
+
+def test_route_rescue_marriage_window(monkeypatch, tmp_path):
+    """Warns about Ever After courtship BEFORE ambition passes stage b —
+    the window closes when followers get promoted/consumed later."""
+    from cultist_adviser import achievements as ach
+    monkeypatch.setattr(ach, "parse_unlocks", lambda path=None: {})
+    unlock_file = tmp_path / "ach.json"
+    unlock_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(ach, "UNLOCK_PATH", unlock_file)
+    # cult + stage a + courtable follower + no romantic interest
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmenta"),
+                card("cat_a"), card("funds", qty=5)])
+    assert 15 in got, "rescue nudge fires while window is open"
+    # too late — stage c
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmentc"),
+                card("cat_a"), card("funds", qty=5)])
+    # Might still fire other rescues but marriage-specific text should not
+    if 15 in got:
+        assert "共度余生" not in got[15].detail and "Ever After" not in got[15].detail
+
+
+def test_route_rescue_priest_scar_branch(monkeypatch, tmp_path):
+    from cultist_adviser import achievements as ach
+    monkeypatch.setattr(ach, "parse_unlocks", lambda path=None: {})
+    unlock_file = tmp_path / "ach.json"
+    unlock_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(ach, "UNLOCK_PATH", unlock_file)
+    # Exactly 3 scars — the branch point
+    got = tops([card("priestjob"),
+                card("lockscarlantern"), card("lockscarheart"),
+                card("lockscarmoth"), card("funds", qty=5)],
+               legacy="priest")
+    assert 15 in got and "牝马" in got[15].detail or "Mare" in got[15].detail
+    # 4 scars — past the choice
+    got = tops([card("priestjob"),
+                card("lockscarlantern"), card("lockscarheart"),
+                card("lockscarmoth"), card("lockscaredge"),
+                card("funds", qty=5)],
+               legacy="priest")
+    if 15 in got:
+        assert "牝马" not in got[15].detail and "Mare" not in got[15].detail
+
+
+def test_route_rescue_founding_window(monkeypatch, tmp_path):
+    """Naming which cult achievements are still locked is worth doing at the
+    founding fork — invisible during play otherwise."""
+    from cultist_adviser import achievements as ach
+    monkeypatch.setattr(ach, "parse_unlocks",
+                        lambda path=None: {"a_cult_lantern": "x"})
+    unlock_file = tmp_path / "ach.json"
+    unlock_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(ach, "UNLOCK_PATH", unlock_file)
+    # About to found — acquaintance + lore in hand, no cult yet
+    got = tops([card("cat_a"), card(frag("winter", 2)),
+                card("funds", qty=5)])
+    assert 15 in got
+    # After founding — no cross-track nudge
+    got = tops([card("cat_a"), card("cultwinter_1"),
+                card(frag("winter", 2)), card("funds", qty=5)])
+    if 15 in got:
+        assert "建团前" not in got[15].detail and "founding" not in got[15].detail.lower()

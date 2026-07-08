@@ -1608,19 +1608,44 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
                f"Ambition at {level}: wait for an Ambitions season"),
             detail))
     elif stage == "f":
+        # Real thresholds from ascension.json:
+        #   minor victory (小胜): ritual + 36 primary aspect + ascension_f
+        #   major (使徒/大胜):   ritual + 50 primary aspect + ascension_f
+        #   with-Risen half-bar: ritual + 27 primary + summoned + romantic
         total = _lore_total(state, lore)
-        if total >= 36:
-            lore_line = tr(f"主系秘传合计 {total}/36 ✔ 已达标——不必再攒，别浪费行动。",
-                           f"Prime lore totals {total}/36 ✔ — enough. Stop farming; "
-                           "spend your verbs elsewhere.")
+        has_lover = _qty_anywhere(state, "romanticinterest") > 0
+        risen_ready = _qty_anywhere(state, "spirit_wintera_moth") + \
+            _qty_anywhere(state, "spirit_wintera_edge") > 0
+        lore_zh = ASPECT_ZH.get(lore, lore)
+        parts = []
+        if total >= 50:
+            parts.append(tr(f"主系秘传合计 {total}/50 ✔ 可挑战大胜（使徒结局）。",
+                            f"Prime lore {total}/50 ✔ — major (Apostle) victory in reach."))
+        elif total >= 36:
+            parts.append(tr(f"主系秘传合计 {total}/36 ✔ 小胜可以了。还需再攒 {50 - total} 到大胜。",
+                            f"Prime lore {total}/36 ✔ (minor). {50 - total} more for major."))
+        elif has_lover and risen_ready and total >= 27:
+            parts.append(tr(f"主系秘传 {total}/27 ✔（有恋人尸体作为行尸，需求减半到 27）。",
+                            f"Prime lore {total}/27 ✔ (with-Risen halves the bar)."))
         else:
-            lore_line = tr(f"主系秘传合计 {total}/36，还差 {36 - total}。",
-                           f"Prime lore totals {total}/36 — {36 - total} short.")
+            parts.append(tr(f"主系秘传合计 {total}/36，还差 {36 - total}。",
+                            f"Prime lore {total}/36 — {36 - total} short."))
+        # spelled-out example ritual composition (representative — many valid combos)
+        parts.append(tr(f"仪式所需：任意仪式卡 + 「诱惑：{lore_zh}」欲望卡（f 阶）"
+                        f" + 主系秘传合计够阈值（可拼多张、含 12 级工具、10-12 级追随者、"
+                        f"15 级影响）。日落仪式 + 主系 6 级密传 + 12 级追随者 + 15 级影响是"
+                        "典型组合。",
+                        f"Rite needs: any rite card + Ascension: {lore.capitalize()} (stage f) "
+                        f"+ enough primary aspect (mix lore, level-12 tools, level-10-12 "
+                        f"followers, level-15 influences). The Sunset Rite + 6-lore + "
+                        "level-12 follower + level-15 influence is the canonical build."))
+        if has_lover:
+            parts.append(tr("有恋人：仪式最后一步别加激情，否则变成「共度余生」结局。",
+                            "You have a lover — don't add Passion to the finale slot, or "
+                            "the run turns into Ever After."))
         out.append(Suggestion(70,
             tr("欲望已达 6 级——终局清单", "Desire at 6 — the endgame checklist"),
-            lore_line + tr("另需高级影响与对应仪式；先见者的援手能提高胜利档次。",
-                           " You also need a high influence and the matching rite; "
-                           "a Know-hand ally raises the victory tier.")))
+            "".join(parts)))
 
 
 # Mansus doors: way card -> single-lore requirement options (dream_mansus.json).
@@ -1688,6 +1713,70 @@ ALL_RITES = (
     "riteinfluenceconsumefollower",   # Beast's Anointing (consumes follower)
     "riteconsumetoolingredientfollowerinfluence",  # Rite Intercalate (endgame)
 )
+
+
+# Full summoning menu (summoning.json). Requirement dicts are aspect totals
+# needed alongside a rite card in Work. The Ring-Yew / Cartographer of Scars
+# routes (Risen from a corpse) skip the Knock gate.
+SUMMONABLES = (
+    # id                       tier  requirements (Knock is unused if 0)
+    ("spirit_wintera_moth",    1, {"winter": 4, "moth": 2}),                # Burgeoning Risen
+    ("spirit_wintera_edge",    1, {"winter": 4, "edge": 2}),                # Shattered Risen
+    ("spirit_winterb_heart",   2, {"knock": 2, "winter": 4, "heart": 2}),   # Voiceless Dead
+    ("spirit_forgec_winter",   3, {"knock": 2, "forge": 6, "winter": 2}),   # Caligine
+    ("spirit_grailc_moth",     3, {"knock": 2, "grail": 6, "moth": 2}),     # Raw Prophet
+    ("spirit_lanternc_edge",   3, {"knock": 2, "lantern": 6, "edge": 2}),   # Hint
+    ("spirit_heartc_edge",     3, {"knock": 2, "heart": 6, "edge": 2}),     # Percussigant
+    ("spirit_winterd_edge",    4, {"knock": 2, "winter": 8, "edge": 2}),    # Maid-in-the-Mirror
+    ("spirit_forgee_edge",     5, {"knock": 5, "forge": 10, "lantern": 2}), # King Crucible
+    ("spirit_graile_edge",     5, {"knock": 5, "grail": 10, "forge": 2}),   # Ezeem
+    ("spirit_lanterne_secret", 5, {"knock": 5, "lantern": 10, "secrethistories": 2}),  # Teresa
+)
+
+
+def _summonable_rules(state: GameState, out: list[Suggestion]):
+    """List which summons the player's current lore + tool aspects allow, plus
+    those just out of reach. Fires once any rite card is in hand."""
+    ids = {s.entity_id for s in _all_stacks(state)}
+    if not any(r in ids for r in ALL_RITES):
+        return  # no rite → summoning isn't yet a live option
+    levels = _lore_levels(state)
+    have_asp = {a: levels.get(a, 0) + _best_tool_aspect(state, a)
+                for a in ("edge", "forge", "grail", "heart", "knock",
+                          "lantern", "moth", "winter", "secrethistories")}
+    ready, near = [], []
+    for eid, tier, req in SUMMONABLES:
+        gaps = {a: max(0, n - have_asp.get(a, 0)) for a, n in req.items()}
+        short_total = sum(gaps.values())
+        if short_total == 0:
+            ready.append((eid, tier, req))
+        elif short_total <= 3:
+            near.append((eid, tier, req, gaps))
+    if not (ready or near):
+        return
+    lines = []
+    if ready:
+        rn = "、".join(display_name(e) for e, _, _ in ready) if get_language() == "zh" \
+            else ", ".join(display_name(e) for e, _, _ in ready)
+        lines.append(tr(f"可召唤：{rn}", f"Ready to summon: {rn}"))
+    if near:
+        for eid, tier, req, gaps in near[:3]:
+            gap_txt = "、".join(
+                f"{ASPECT_ZH.get(a, a)} 差 {n}" for a, n in gaps.items() if n
+            ) if get_language() == "zh" else \
+                ", ".join(f"{a} short {n}" for a, n in gaps.items() if n)
+            lines.append(tr(f"接近：{display_name(eid)}（{gap_txt}）",
+                            f"Close: {display_name(eid)} ({gap_txt})"))
+    sep = "；" if get_language() == "zh" else "; "
+    out.append(Suggestion(17,
+        tr(f"召唤菜单：{len(ready)}/{len(SUMMONABLES)} 可召",
+           f"Summoning menu: {len(ready)}/{len(SUMMONABLES)} available"),
+        sep.join(lines) + tr("。在「作业」放入仪式卡 + 所需秘传/工具即可召唤。"
+                             "召唤物通常存在 180 秒，行尸 120 秒；30% 概率失控，"
+                             "投 1 激情压制或 1 理性驱逐。",
+                             ". Work: rite card + the lore/tools listed. Summons "
+                             "last 180s (Risen: 120s); a 30% control check may "
+                             "require Passion to subdue or Reason to banish.")))
 
 
 def _rite_inventory_rules(state: GameState, out: list[Suggestion]):
@@ -2385,6 +2474,151 @@ def _exile_rules(state: GameState, out: list[Suggestion]):
         ))
 
 
+# Where each ascension track locks in — after these ids the ambition is
+# effectively committed. Used by the route-rescue rule to know when a
+# competing achievement is still salvageable vs already too late.
+_ASCENSION_STAGE_A = ("ascensionenlightenmenta", "ascensionpowera",
+                      "ascensionsensationa", "ascensionchangea")
+_ASCENSION_STAGE_B = ("ascensionenlightenmentb", "ascensionpowerb",
+                      "ascensionsensationb", "ascensionchangeb")
+
+
+def _route_rescue_rules(state: GameState, out: list[Suggestion]):
+    """Warn about achievement routes at the last salvageable moment. Each
+    catches a specific fork BEFORE the point of no return — the existing
+    _achievement_rules only reports what the current path is on track for."""
+    if _spoiler < SPOILER_GUIDE:
+        return
+    try:
+        unlocks = set(ach.parse_unlocks())
+    except Exception:
+        return
+    if not unlocks and not ach.UNLOCK_PATH.exists():
+        return
+    ids = {s.entity_id for s in _all_stacks(state)}
+    tips: list[str] = []
+
+    def name(aid):
+        d = ach.definitions().get(aid, {})
+        zh = ach.zh_labels().get(aid, {}).get("label")
+        return zh or d.get("label", aid) if get_language() == "zh" else d.get("label", aid)
+
+    pos = _ascension_position(state)
+
+    # --- 1) Marriage windows: 21 Ever After endings ---
+    # The window to court a specific NPC closes when they're consumed as a
+    # tribute, promoted, exalted, or die. Best time to court is right after
+    # founding the cult and before the ambition passes stage b.
+    all_marriage_unlocked = all(
+        f"a_ending_{eid[:-2]}victory" in unlocks
+        for eid in ("cat", "auclair", "clifton", "slee", "rose", "victor",
+                    "violet", "tristan", "laidlaw", "elridge")[:4]
+    )
+    if not all_marriage_unlocked and pos and pos[1] in ("a", "b"):
+        courtable = [s.entity_id for s in _tabletop_stacks(state)
+                     if any(element_aspects(s.entity_id).get(k)
+                            for k in ("follower_lustpower", "follower_lustsensation",
+                                       "follower_lustchange", "follower_lustenlightenment"))
+                     and not s.entity_id.endswith("_c")]
+        has_interest = "romanticinterest" in ids
+        locked_names = [name(f"a_ending_{n}victory") for n in
+                        ("tristan", "auclair", "rose", "cat", "clifton")
+                        if f"a_ending_{n}victory" not in unlocks]
+        if courtable and not has_interest and locked_names:
+            tips.append(tr(
+                f"想拿共度余生结局，现在是追求追随者的最佳窗口——飞升进入 c/d 阶段前开始。"
+                f"未解锁的比如：{'、'.join(locked_names[:3])}。",
+                f"Best moment to court a follower for an Ever After ending — before "
+                f"ambition hits stage c. Locked candidates: {', '.join(locked_names[:3])}."))
+
+    # --- 2) With-Risen prep window ---
+    withrisen_locked = [aid for aid in (
+        "a_ending_minorforgevictory_withrisen",
+        "a_ending_minorgrailvictory_withrisen",
+        "a_ending_minorlanternvictory_withrisen",
+    ) if aid not in unlocks]
+    if withrisen_locked and pos and pos[1] in ("b", "c", "d"):
+        if "romanticinterest" in ids and not any(e.startswith("spirit_") for e in ids) \
+                and not any(has_aspect(e, "corpse") for e in ids):
+            tips.append(tr(
+                "有恋人在场且未走 withrisen 路线：让恋人单独探索藏宝地失败受伤、别在谈话中"
+                "治疗，死后用仪式（冬 4 + 蛾 2/刃 2）升行尸，飞升自动吸入即得 withrisen 结局。",
+                "You have a lover, no Risen yet: send them solo to expeditions, don't "
+                "heal wounds in Talk; on death, raise as Risen (Winter 4 + Moth/Edge 2) "
+                "and start ascension — the rite draws them in for the withrisen ending."))
+
+    # --- 3) Priest scar-lock branch ---
+    scars = sum(1 for a in SCAR_ASPECTS
+                if _qty_anywhere(state, f"lockscar{a}")
+                or _qty_anywhere(state, f"openedlockscar{a}"))
+    if scars == 3 and "a_ending_minormarevictory" not in unlocks:
+        tips.append(tr(
+            "已 3 张伤疤锁：想拿「牝马」结局就此停手挂机等病死；想继续到「母亲」结局就凑 7 张。",
+            "3 scar-locks — stop and let sickness kill you for the Mare's ending, "
+            "or push to 7 for the Mother's Arms."))
+
+    # --- 4) Ghoul Fruitfulness branch ---
+    if _qty_anywhere(state, "dedication.remembrance"):
+        gm = _mutation_value(state, "dedication.remembrance", "ghoul.hunger")
+        if 2 <= gm <= 5 and "a_ending_minorcrownedgrowthvictory" not in unlocks:
+            tips.append(tr(
+                f"墓地之口 {gm}/7：不研究人类尸体它会自然涨到 7，触发「硕果累累」结局。"
+                "如果这是这局的目标，避免用洗波音灵药+尸体降点数。",
+                f"Graveyard Mouth {gm}/7 — leaving it alone climbs to 7 for the "
+                "Fruitfulness ending. Don't shed it with Elixir Zeboim + corpse study "
+                "if that's your goal."))
+
+    # --- 5) Poppy 静静离去 branch ---
+    poppy_running = any(s.verb_id == "poppytime" and s.time_remaining > 0
+                        for s in find_situations(state))
+    if poppy_running and "a_ending_wintersacrifice" not in unlocks:
+        tips.append(tr(
+            "波比·拉舍莱斯的仪式正在倒计时：不投入任何追随者即达成「钟鸣十二响」"
+            "（静静离去）结局。想避免则投入 1 名可牺牲的追随者。",
+            "Poppy's rite is counting down: offer no follower to reach The Clock "
+            "Striketh Twelve. Otherwise offer any expendable follower."))
+
+    # --- 6) Turn-Aside window (少数派结局) ---
+    # Fires at ambition dedication (stage b) — the 'set aside the temptation'
+    # ending needs you to reject the desire before it upgrades further.
+    if pos and pos[1] == "b" and "a_ending_turnasidevictory" not in unlocks \
+            and _qty_anywhere(state, "romanticinterest") == 0:
+        tips.append(tr(
+            "少见结局：在此阶段用「舍弃」把欲望卡处理掉（无恋人时可达成），"
+            "达成「置之一旁」结局，永享幸福。",
+            "Rare ending: relinquish the desire card before it upgrades further "
+            "(no lover on the table) for Turn Aside — the door few choose."))
+
+    # --- 7) Cult-founding fork: no cult yet, some cult achievements locked ---
+    # Right before founding is the natural moment to hint at what's still
+    # missing from the roster. Fires once when the player has both an
+    # acquaintance and a lore fragment (the founding materials).
+    if not any(e.startswith("cult") for e in ids) \
+            and any(has_aspect(e, "acquaintance") for e in ids) \
+            and any(e.startswith("fragment") for e in ids):
+        locked_cults = [a for a in ("forge", "grail", "lantern", "winter",
+                                     "edge", "heart", "moth", "knock",
+                                     "secrethistories")
+                        if ach.CULT_ASPECT_TO_ACH.get(a) not in unlocks]
+        if 0 < len(locked_cults) < len(ach.CULT_ASPECT_TO_ACH):
+            names = "/".join(ASPECT_ZH.get(a, a) for a in locked_cults[:5])
+            names_en = "/".join(locked_cults[:5])
+            tips.append(tr(
+                f"建团前提示：这些系教团成就还没解锁——{names}。"
+                "投入哪系秘传就建哪系。",
+                f"Cult founding: these aspects are still locked — {names_en}. "
+                "Slot lore of that aspect to found."))
+
+    if tips:
+        title = tr(f"路线抢救（{len(tips)} 项）：",
+                   f"Route rescue ({len(tips)} item{'s' if len(tips) > 1 else ''}):")
+        sep = "。" if get_language() == "zh" else " · "
+        out.append(Suggestion(15,
+            title,
+            sep.join(tips),
+            spoiler=SPOILER_GUIDE))
+
+
 def _achievement_rules(state: GameState, out: list[Suggestion]):
     """Nudge toward achievements the run is already positioned to earn."""
     if _spoiler < SPOILER_GUIDE:
@@ -2627,6 +2861,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _tagged(_ascension_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
     _tagged(_rite_inventory_rules, state, out, SPOILER_GUIDE)
+    _tagged(_summonable_rules, state, out, SPOILER_GUIDE)
     _tagged(_vault_inventory_rules, state, out, SPOILER_GUIDE)
     _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
     _tagged(_long_rules, state, out, SPOILER_GUIDE)
@@ -2639,6 +2874,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _book_rules(state, out)           # tags itself: guidance 1, shop stock 2
     _stage_banner(state, out)         # tags itself: guidance 1
     _achievement_rules(state, out)    # tags itself: guidance 1
+    _route_rescue_rules(state, out)   # tags itself: guidance 1
 
 
 def _ghoul_rules(state: GameState, out: list[Suggestion]):
