@@ -2189,6 +2189,13 @@ LUST_VENUE = {
                                     "reason", "理性", "Reason"),
 }
 
+EVER_AFTER_BASES = (
+    "auclair", "cat", "clifton", "clovette", "dorothy", "elridge",
+    "enid", "laidlaw", "leo", "neville", "porter", "renira", "rose",
+    "saliba", "slee", "sylvia", "tristan", "valciane", "victor",
+    "violet", "ysabet",
+)
+
 
 def _ever_after_rules(state: GameState, out: list[Suggestion]):
     """Ever After (21 marriage endings): the follower must first be courted at
@@ -2857,7 +2864,15 @@ def _exile_route_rules(state: GameState, out: list[Suggestion]):
                "Obscurity: travel to Remote or relinquish Trace + 2 Assists-Deception "
                "cards. Comfort comes mostly from buying offices/villas. Three tiers: "
                "<20 quiet, 20-29 comfortable, 30+ rare and happy.")))
-    foe_wounds = _qty_anywhere(state, "wound.foe") + _qty_anywhere(state, "wound.foe.unstanchable")
+    # Wound cards are the temporary visible tokens; damage.foe is the
+    # permanent counter used by both the kill and Defiance finale recipes.
+    # Some saves briefly contain both, so use the larger view instead of
+    # double-counting the same wound.
+    foe_wounds = max(
+        _qty_anywhere(state, "damage.foe"),
+        _qty_anywhere(state, "wound.foe")
+        + _qty_anywhere(state, "wound.foe.unstanchable"),
+    )
     if foe_wounds >= 5:
         out.append(Suggestion(90,
             tr(f"大敌已伤 {foe_wounds}/7 处：击杀在即",
@@ -2924,6 +2939,366 @@ _ASCENSION_STAGE_B = ("ascensionenlightenmentb", "ascensionpowerb",
                       "ascensionsensationb", "ascensionchangeb")
 
 
+# The nine colour mutations required by paint.palestpainting.complete.  Each
+# source is the exact remnant consumed by study.alzabo.remnant to create the
+# corresponding Hour-memory (verified against DLC_GHOUL_recipes.json).
+GHOUL_COLOURS = (
+    ("furious", "memory.furious", "corpse.furious"),
+    ("luxurious", "memory.luxurious", "corpse.luxurious"),
+    ("liminal", "memory.liminal", "corpse.liminal"),
+    ("horizon", "memory.horizon", "corpse.horizon"),
+    ("splendid", "memory.splendid", "corpse.splendid"),
+    ("endless", "memory.endless", "ingredientheartf"),
+    ("wildering", "memory.wildering", "ingredientmothf"),
+    ("golden", "memory.golden", "spirit_forgee_edge.defunct"),
+    ("honeyed", "memory.honeyed", "decrepitude"),
+)
+
+
+def _achievement_unlock_set() -> set[str] | None:
+    """Known unlocks, or None when this installation has no achievement
+    record.  An existing empty file deliberately means 'all still locked'."""
+    try:
+        unlocks = set(ach.parse_unlocks())
+    except Exception:
+        return None
+    if not unlocks and not ach.UNLOCK_PATH.exists():
+        return None
+    return unlocks
+
+
+def _dancer_achievement_rules(state: GameState, out: list[Suggestion],
+                              unlocks: set[str]):
+    legacy = (state.active_legacy or "").lower()
+    ids = {s.entity_id for s in _all_stacks(state)}
+    is_dancer = legacy == "dancer" or any(
+        e.startswith(("legacydancerjob", "dancerjobecdysis"))
+        for e in ids)
+    if not is_dancer:
+        return
+
+    # A NEW LIFE: this branch starts with the ordinary Gaiety contract, long
+    # before the proposal card appears.  Once a proposal exists it has its own
+    # 180-second lifetime and must become an urgent, concrete Talk action.
+    marriage_aid = "a_ending_workvictorymarriage"
+    if marriage_aid not in unlocks:
+        proposal = next((s for s in _tabletop_stacks(state)
+                         if s.entity_id in ("benefactorm_proposedtoplayer",
+                                            "benefactorf_proposedtoplayer")
+                         or has_aspect(s.entity_id, "benefactor_proposal")), None)
+        benefactor = next((s for s in _all_stacks(state)
+                           if s.entity_id in ("benefactorm", "benefactorf")), None)
+        if proposal:
+            remaining = max(0.0, proposal.lifetime_remaining)
+            out.append(Suggestion(
+                146,
+                tr("恩主已经求婚：在热情消退前答应",
+                   "Your benefactor has proposed: accept before it fades"),
+                tr("立刻「交谈」= 求婚中的恩主 + 激情，即达成「新生活」。"
+                   f"这张求婚卡约剩 {remaining:.0f} 秒。",
+                   "Talk immediately: proposing benefactor + Passion for A NEW LIFE. "
+                   f"The proposal has about {remaining:.0f}s left."),
+                urgent=remaining <= 60,
+                verb_id="talk", requires={proposal.entity_id: 1, "passion": 1},
+                deadline=remaining))
+        elif benefactor:
+            besotment = _mutation_value(state, benefactor.entity_id, "besotment")
+            boredom = _mutation_value(state, benefactor.entity_id, "boredom")
+            out.append(Suggestion(
+                71,
+                tr(f"成就路线·新生活：迷恋 {besotment}/10，厌倦 {boredom}/7",
+                   f"Achievement route · A NEW LIFE: Besotment {besotment}/10, "
+                   f"Boredom {boredom}/7"),
+                tr("用恩主作业，准备健康和资金；TA 提要求后按要求补健康/理性/激情/资金。"
+                   "迷恋到 7 后每次约 70% 求婚，10 必定求婚；厌倦到 7 或恩主过期则路线失败。",
+                   "Work with the benefactor and have Health + Funds ready; answer the "
+                   "second-slot demand with Health/Reason/Passion/Funds. At Besotment 7 "
+                   "proposal chance is about 70%; at 10 it is certain. Boredom 7 or expiry "
+                   "closes the route."),
+                verb_id="work", requires={benefactor.entity_id: 1}))
+        elif any(e.startswith(("legacydancerjob", "dancerjob")) for e in ids):
+            out.append(Suggestion(
+                39,
+                tr("未解锁复杂成就·新生活：现在就要开始找恩主",
+                   "Locked route · A NEW LIFE: start seeking a benefactor now"),
+                tr("反复用盖提剧院合约 + 健康跳舞；第二阶段再加健康或躁动，有机会引来恩主。"
+                   "这是独立职业结局，进入蜕衣俱乐部主线后再回头会浪费很多作业时间。",
+                   "Keep dancing the Gaiety contract with Health; add another Health or "
+                   "Restlessness at the second stage for a chance to attract a benefactor. "
+                   "This is a separate career ending, so begin before the Ecdysis route "
+                   "monopolises Work.")))
+
+    # Change endings: the desire's two mutation counters are the actual route
+    # state.  The balanced Meniscate ending is the easiest one to lock out by
+    # taking too many lessons on one side, so prefer it while still missing.
+    desire = next((s for s in _all_stacks(state)
+                   if s.entity_id.startswith("ascensionchange")), None)
+    if not desire:
+        return
+    old_form = _mutation_value(state, desire.entity_id, "desiremoth_track")
+    new_form = _mutation_value(state, desire.entity_id, "desireheart_track")
+    balance_locked = "a_ending_minormeniscatevictory" not in unlocks
+    moth_locked = "a_ending_minormothvictory" not in unlocks
+    heart_locked = "a_ending_minorheartvictory" not in unlocks
+    if balance_locked:
+        if old_form < new_form:
+            next_side = tr("下一课选蛾，补旧形", "take a Moth lesson next for Old Form")
+        elif new_form < old_form:
+            next_side = tr("下一课选心，补新形", "take a Heart lesson next for New Form")
+        else:
+            next_side = tr("两边相等，下一阶段仍要交替取课", "they are even; keep alternating lessons")
+        out.append(Suggestion(
+            49,
+            tr(f"成就路线·月之屋：旧形 {old_form} / 新形 {new_form}",
+               f"Achievement route · House of the Moon: Old {old_form} / New {new_form}"),
+            tr(f"{next_side}。最后一舞必须保持平衡：旧形 4/新形 3 时用 18 心；"
+               "新形 4/旧形 3 时用 18 蛾。差距拉到 2 后就很难救回。",
+               f"{next_side}. The last dance must restore balance: Old 4/New 3 uses "
+               "18 Heart; New 4/Old 3 uses 18 Moth. A gap of two is difficult to rescue.")))
+    elif moth_locked or heart_locked:
+        target_zh = "蛾（旧形）" if moth_locked else "心（新形）"
+        target_en = "Moth (Old Form)" if moth_locked else "Heart (New Form)"
+        out.append(Suggestion(
+            42,
+            tr(f"未解锁蜕变结局：优先推进{target_zh}",
+               f"Locked Change ending: favour {target_en}"),
+            tr(f"当前旧形 {old_form} / 新形 {new_form}。在渴求阶段选对应课程，"
+               "最终一舞准备同系 18 属性。",
+               f"Current Old {old_form} / New {new_form}. Choose that side's lessons "
+               "during Cravings and prepare 18 matching aspect for the final dance.")))
+
+
+def _priest_achievement_prep_rules(state: GameState, out: list[Suggestion],
+                                   unlocks: set[str]):
+    if state.active_legacy != "priest" and not _qty_anywhere(state, "priestjob"):
+        return
+    mare_locked = "a_ending_minormarevictory" not in unlocks
+    mother_locked = "a_ending_minorknockvictory" not in unlocks
+    if not (mare_locked or mother_locked):
+        return
+    scars = sum(1 for a in SCAR_ASPECTS
+                if _qty_anywhere(state, f"lockscar{a}")
+                or _qty_anywhere(state, f"openedlockscar{a}"))
+    if scars:
+        return  # _priest_scar_rules and route rescue own the live branch.
+    health = _qty_anywhere(state, "health")
+    targets = tr("3 张停手拿牝马；7 张继续拿母亲" if mare_locked and mother_locked
+                 else ("3 张停手拿牝马" if mare_locked else "7 张继续拿母亲"),
+                 "stop at 3 for the Mare; continue to 7 for the Mother"
+                 if mare_locked and mother_locked else
+                 ("stop at 3 for the Mare" if mare_locked else "continue to 7 for the Mother"))
+    out.append(Suggestion(
+        41,
+        tr(f"教士复杂成就应提前备血：当前健康 {health}",
+           f"Priest achievement prep starts with Health: currently {health}"),
+        tr(f"每造一张伤疤锁永久消耗 1 健康；路线分叉是{targets}。"
+           "普通锻炼最多约 5 健康，冲 7 张前要先召唤带失灯/褪思属性的灵体，"
+           "把理性或激情变成衰老，再用「铸之救赎」转回健康。不要造到第 4 张后才准备。",
+           f"Each scar-lock permanently costs 1 Health; {targets}. Ordinary exercise "
+           "only reaches about 5 Health. Before seven scars, summon a spirit with "
+           "Lamp of Loss/Thresher of Thoughts to turn Reason or Passion into Decrepitude, "
+           "then use Forge's Redemption to restore it as Health. Prepare before scar four.")))
+
+
+def _ghoul_achievement_prep_rules(state: GameState, out: list[Suggestion],
+                                  unlocks: set[str]):
+    if state.active_legacy != "ghoul" and not (
+            _qty_anywhere(state, "temptation.remembrance")
+            or _qty_anywhere(state, "dedication.remembrance")):
+        return
+    pale_locked = "a_ending_minorwintervictory" not in unlocks
+    fruit_locked = "a_ending_minorcrownedgrowthvictory" not in unlocks
+    if not (pale_locked or fruit_locked):
+        return
+
+    palest = next((s for s in _all_stacks(state)
+                   if s.entity_id == "painting.palest"), None)
+    if pale_locked and palest:
+        has_way = int((palest.mutations or {}).get("way", 0) or 0) > 0
+        if has_way:
+            out.append(Suggestion(
+                92,
+                tr("淡白至极的画作已开门：入梦完成结局",
+                   "The Palest Painting is a door: Dream it to finish"),
+                tr("用画作入梦，随后依次献出激情、理性、健康；健康最后交，"
+                   "避免中途被疾病时节直接杀死。",
+                   "Dream the painting, then surrender Passion, Reason and Health; "
+                   "give Health last so a Sickness season cannot kill you midway."),
+                verb_id="dream", requires={"painting.palest": 1}))
+        else:
+            out.append(Suggestion(
+                88,
+                tr("画作已完成：先给挽歌儿小姐看",
+                   "Painting complete: show it to Miss Naenia"),
+                tr("「交谈」= 挽歌儿小姐 + 淡白至极的画作，为画作加上梦之道路；然后再入梦。",
+                   "Talk = Miss Naenia + the Palest Painting to add the Way through "
+                   "Dream; then Dream the painting."),
+                verb_id="talk", requires={"naenia": 1, "painting.palest": 1}))
+        return
+
+    canvas = next((s for s in _all_stacks(state)
+                   if s.entity_id == "canvas.pale"), None)
+    if pale_locked and canvas:
+        completed = {suffix for suffix, _, _ in GHOUL_COLOURS
+                     if int((canvas.mutations or {}).get(f"colours.{suffix}", 0) or 0) > 0}
+        missing = [(suffix, memory, source)
+                   for suffix, memory, source in GHOUL_COLOURS
+                   if suffix not in completed]
+        ready_memory = next((m for _, m, _ in missing if _qty_actionable(state, m)), None)
+        ready_source = next(((m, src) for _, m, src in missing
+                             if _qty_actionable(state, src)), None)
+        if ready_memory:
+            ready = bool(_qty_actionable(state, "passion"))
+            out.append(Suggestion(
+                79 if ready else 60,
+                tr(f"淡白画作 {len(completed)}/9：下一色用「{display_name(ready_memory)}」",
+                   f"Palest Painting {len(completed)}/9: next colour from "
+                   f"{display_name(ready_memory)}"),
+                tr("用绘画技能作业，投入激情 + 这张司辰回忆，再把淡白画布放入画布槽。"
+                   "回忆会被消耗，颜色永久记在画布上。",
+                   "Work with painting skill, Passion + this Hour-memory, then slot "
+                   "the Pale Canvas. The memory is consumed and its colour is stored."),
+                verb_id="work",
+                requires={"passion": 1, ready_memory: 1, "canvas.pale": 1}))
+        elif ready_source:
+            memory, source = ready_source
+            out.append(Suggestion(
+                73,
+                tr(f"淡白画作 {len(completed)}/9：先吃「{display_name(source)}」取回忆",
+                   f"Palest Painting {len(completed)}/9: consume {display_name(source)} first"),
+                tr(f"「研读」= 洗波音灵药 + {display_name(source)} → {display_name(memory)}；"
+                   "同时墓地之口 -1。之后再把回忆画进画布。",
+                   f"Study Elixir Zeboim + {display_name(source)} -> {display_name(memory)}; "
+                   "this also lowers Graveyard Mouth by 1. Then paint the memory."),
+                verb_id="study", requires={"alzabo": 1, source: 1}))
+        else:
+            sources = missing[:3]
+            zh = "、".join(display_name(src) for _, _, src in sources)
+            en = ", ".join(display_name(src) for _, _, src in sources)
+            out.append(Suggestion(
+                48,
+                tr(f"淡白画作进度：{len(completed)}/9，还缺 {len(missing)} 色",
+                   f"Palest Painting: {len(completed)}/9, {len(missing)} colours missing"),
+                tr(f"下一批缺色来源：{zh}。取得残骸后先用洗波音灵药研读成司辰回忆，"
+                   "再用激情画进画布。",
+                   f"Next missing sources: {en}. Study each remnant with Elixir Zeboim "
+                   "for an Hour-memory, then paint it into the canvas with Passion.")))
+        return
+
+    if pale_locked:
+        memory = next((m for _, m, _ in GHOUL_COLOURS if _qty_actionable(state, m)), None)
+        if memory:
+            out.append(Suggestion(
+                70,
+                tr(f"先用「{display_name(memory)}」制作淡白画布",
+                   f"Use {display_name(memory)} to begin the Pale Canvas"),
+                tr("用绘画技能作业，投入激情 + 司辰回忆，随后投入一具人类尸体制作画布。"
+                   "这一步耗时较长并产生 1 邪名；之后同一画布逐色完成 9 次。",
+                   "Work with painting skill, Passion + the Hour-memory, then add a "
+                   "human corpse to make the canvas. It takes time and creates 1 "
+                   "Notoriety; reuse that canvas for all nine colours.")))
+            return
+
+    # Earliest fork, before either route has visible progress.  This is the
+    # point old guidance missed and where a player can save an entire run.
+    dedication = _qty_anywhere(state, "dedication.remembrance")
+    gm = _mutation_value(state, "dedication.remembrance", "ghoul.hunger") if dedication else 0
+    if gm <= 2:
+        if pale_locked and fruit_locked:
+            detail = tr(
+                "两条未解锁路线会争用墓地之口：想快速拿「硕果累累」，首次用尸体完成晋升后"
+                "不再吃尸体/残骸，让野心时节涨到 7；想做淡白画作，就持续吃残骸取得 9 种回忆，"
+                "并用尸体把点数压低避免提前结局。",
+                "Two locked routes pull Graveyard Mouth in opposite directions. For "
+                "Fruitfulness, perform the first corpse upgrade then stop eating corpses/"
+                "remnants and let Ambitions raise it to 7. For the Palest Painting, keep "
+                "consuming remnants for nine memories and use corpses to keep the counter low.")
+        elif fruit_locked:
+            detail = tr("首次尸体晋升后停止用洗波音灵药吃尸体或残骸；每次野心时节 +1，"
+                        "让墓地之口自然到 7。",
+                        "After the first corpse upgrade, stop using Elixir Zeboim on "
+                        "corpses or remnants; every Ambitions season adds 1 until 7.")
+        else:
+            detail = tr("尽早收集 9 种残骸；洗波音灵药把它们变为司辰回忆，"
+                        "绘画技能 + 激情 + 回忆 + 人类尸体先制画布，再逐色画入。",
+                        "Collect nine remnants early; Elixir Zeboim turns them into Hour-"
+                        "memories. Painting skill + Passion + memory + a corpse begins the "
+                        "canvas, then add each colour in turn.")
+        out.append(Suggestion(
+            43,
+            tr("食尸鬼复杂成就：现在决定墓地之口走向",
+               "Ghoul achievement fork: decide Graveyard Mouth now"),
+            detail))
+
+
+def _exile_achievement_prep_rules(state: GameState, out: list[Suggestion],
+                                  unlocks: set[str]):
+    if not (state.active_legacy or "").startswith("exile"):
+        return
+    has_escape = _qty_anywhere(state, "temptation.obscurity")
+    has_defiance = _qty_anywhere(state, "temptation.defiance")
+    defiance_locked = any(a not in unlocks for a in
+                          ("a_ending_colonel", "a_ending_lionsmith", "a_ending_wolf"))
+    retirement_locked = any(a not in unlocks for a in (
+        "a_ending_obscurityvictorya", "a_ending_obscurityvictoryb",
+        "a_ending_obscurityvictoryc", "a_ending_obscurityvictorya_foeslain",
+        "a_ending_obscurityvictoryb_foeslain", "a_ending_obscurityvictoryc_foeslain"))
+    if has_escape and not has_defiance and defiance_locked:
+        extra = tr("；隐居六种结局也未齐，保留逃脱欲望就还能继续攒隐秘/舒适",
+                   "; retirement endings are also locked, so keeping Escape preserves "
+                   "the Obscurity/Comfort route") if retirement_locked else ""
+        out.append(Suggestion(
+            52,
+            tr("流亡者成就分叉：起誓会永久关闭隐居路线",
+               "Exile achievement fork: a vow permanently closes retirement"),
+            tr("向上校立不屈誓言或向狮匠立悍勇誓言，会把「逃脱」换成「抗命」并各受伤/暴怒；"
+               f"这是上校、狮匠、分裂之狼三结局的入口{extra}。",
+               "The Colonel's Unflinching Vow or Lionsmith's Brazen Vow replaces Escape "
+               f"with Defiance and adds a wound/rage. This opens the three Edge endings{extra}.")))
+        return
+    if not has_defiance:
+        return
+    marks = _mutation_value(state, "temptation.defiance", "defiancemarks")
+    colonel = _mutation_value(state, "temptation.defiance", "defiance.consecration.colonel")
+    lionsmith = _mutation_value(state, "temptation.defiance", "defiance.consecration.lionsmith")
+    damage = max(_qty_anywhere(state, "damage.foe"),
+                 _qty_anywhere(state, "wound.foe")
+                 + _qty_anywhere(state, "wound.foe.unstanchable"))
+    aid, route_zh, route_en = (
+        ("a_ending_colonel", "上校", "Colonel") if colonel else
+        (("a_ending_lionsmith", "狮匠", "Lionsmith") if lionsmith else
+         ("a_ending_wolf", "分裂之狼", "Wolf Divided")))
+    if aid in unlocks:
+        return
+    ready = marks >= 7 and damage >= 6 and _qty_anywhere(state, "rkx.foe")
+    out.append(Suggestion(
+        84 if ready else 61,
+        tr(f"抗命成就·{route_zh}：抗命 {marks}/7，大敌伤势 {damage}/6",
+           f"Defiance · {route_en}: marks {marks}/7, foe damage {damage}/6"),
+        tr("门槛是抗命 7 + 大敌仍在场 + 6 道永久伤势；满足后把抗命欲望放入「寄送」完成。"
+           "注意：击杀大敌需要 7 伤，而抗命飞升只需 6，别误打第 7 下。",
+           "The finale needs Defiance 7 + the foe present + 6 permanent damage; "
+           "then put the temptation in Send. Killing the foe takes 7 wounds, while "
+           "Defiance ascension needs only 6 — do not accidentally land the seventh."),
+        verb_id="send" if ready else "",
+        requires={"temptation.defiance": 1} if ready else {}))
+
+
+def _complex_achievement_rules(state: GameState, out: list[Suggestion]):
+    """Start difficult achievement guidance at the planning fork, not only one
+    action before the ending.  Route-specific live rules still own emergencies;
+    this layer exists to prevent irreversible early choices."""
+    if _spoiler < SPOILER_GUIDE:
+        return
+    unlocks = _achievement_unlock_set()
+    if unlocks is None:
+        return
+    _dancer_achievement_rules(state, out, unlocks)
+    _priest_achievement_prep_rules(state, out, unlocks)
+    _ghoul_achievement_prep_rules(state, out, unlocks)
+    _exile_achievement_prep_rules(state, out, unlocks)
+
+
 def _route_rescue_rules(state: GameState, out: list[Suggestion]):
     """Warn about achievement routes at the last salvageable moment. Each
     catches a specific fork BEFORE the point of no return — the existing
@@ -2951,10 +3326,7 @@ def _route_rescue_rules(state: GameState, out: list[Suggestion]):
     # tribute, promoted, exalted, or die. Best time to court is right after
     # founding the cult and before the ambition passes stage b.
     all_marriage_unlocked = all(
-        f"a_ending_{eid[:-2]}victory" in unlocks
-        for eid in ("cat", "auclair", "clifton", "slee", "rose", "victor",
-                    "violet", "tristan", "laidlaw", "elridge")[:4]
-    )
+        f"a_ending_{base}victory" in unlocks for base in EVER_AFTER_BASES)
     if not all_marriage_unlocked and pos and pos[1] in ("a", "b"):
         courtable = [s.entity_id for s in _tabletop_stacks(state)
                      if any(element_aspects(s.entity_id).get(k)
@@ -2962,8 +3334,7 @@ def _route_rescue_rules(state: GameState, out: list[Suggestion]):
                                        "follower_lustchange", "follower_lustenlightenment"))
                      and not s.entity_id.endswith("_c")]
         has_interest = "romanticinterest" in ids
-        locked_names = [name(f"a_ending_{n}victory") for n in
-                        ("tristan", "auclair", "rose", "cat", "clifton")
+        locked_names = [name(f"a_ending_{n}victory") for n in EVER_AFTER_BASES
                         if f"a_ending_{n}victory" not in unlocks]
         if courtable and not has_interest and locked_names:
             tips.append(tr(
@@ -3295,6 +3666,7 @@ def _patron_hireling_rules(state: GameState, out: list[Suggestion]):
 def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         _exile_rules(state, out)  # the Exile plays by its own rules
+        _tagged(_complex_achievement_rules, state, out, SPOILER_GUIDE)
         return
     if _apostle_kind(state):
         _tagged(_apostle_rules, state, out, SPOILER_GUIDE)
@@ -3327,6 +3699,7 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     _stage_banner(state, out)         # tags itself: guidance 1
     _achievement_rules(state, out)    # tags itself: guidance 1
     _route_rescue_rules(state, out)   # tags itself: guidance 1
+    _tagged(_complex_achievement_rules, state, out, SPOILER_GUIDE)
 
 
 def _ghoul_rules(state: GameState, out: list[Suggestion]):
@@ -3410,13 +3783,27 @@ def _schedule_suggestions(state: GameState, suggestions: list[Suggestion]) -> No
     for suggestion in sorted(suggestions, key=lambda s: -s.priority):
         wait = (_verb_ready_in(state, suggestion.verb_id)
                 if suggestion.verb_id else 0.0)
-        if suggestion.verb_id and 0 < wait < float("inf"):
-            if not (suggestion.deadline and wait >= suggestion.deadline):
-                suggestion.detail += tr(
-                    f"「{display_name(suggestion.verb_id)}」正忙，还要约 {wait:.0f} 秒；"
-                    "此项应排在其后。",
-                    f" {display_name(suggestion.verb_id)} is busy for ~{wait:.0f}s; "
-                    "queue this afterwards.")
+        if suggestion.verb_id and suggestion.deadline \
+                and wait >= suggestion.deadline:
+            if wait == float("inf"):
+                wait_zh = "当前不可用"
+                wait_en = "is not currently available"
+            else:
+                wait_zh = f"还要 {wait:.0f} 秒才空闲"
+                wait_en = f"is busy for {wait:.0f}s"
+            suggestion.detail += tr(
+                f"「{display_name(suggestion.verb_id)}」{wait_zh}，但此机会约 "
+                f"{suggestion.deadline:.0f} 秒后截止，正常排队已经赶不上。",
+                f" {display_name(suggestion.verb_id)} {wait_en}, but this opportunity "
+                f"expires in about {suggestion.deadline:.0f}s; the normal queue cannot "
+                "make the deadline.")
+            suggestion.urgent = True
+        elif suggestion.verb_id and 0 < wait < float("inf"):
+            suggestion.detail += tr(
+                f"「{display_name(suggestion.verb_id)}」正忙，还要约 {wait:.0f} 秒；"
+                "此项应排在其后。",
+                f" {display_name(suggestion.verb_id)} is busy for ~{wait:.0f}s; "
+                "queue this afterwards.")
         if not suggestion.requires:
             continue
         conflicts = []

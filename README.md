@@ -206,7 +206,12 @@ chart and summary stats.
 progress `N/83` with locked ones grouped by category; during play, if the
 current board is already on track toward a locked achievement (founded the
 matching cult, opened a new Mansus door, exalted a disciple, summoned a
-spirit), the adviser quietly notes "achievable this run: X". Skipped at
+spirit), the adviser quietly notes "achievable this run: X". Difficult routes
+now start at their early forks: Dancer tracks the benefactor and Old/New Form
+balance from the Gaiety years; Priest plans Health before the first scar;
+Ghoul tracks every Palest Painting colour `N/9`; Exile warns before vows close
+retirement and distinguishes 7 wounds to kill from 6 permanent wounds for a
+Defiance ascension. Skipped at
 Keeper tier — achievements are a metagame pull that bends route freedom.
 
 **Bilingual** — card/verb names come from the game's own Chinese/English

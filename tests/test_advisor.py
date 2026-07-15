@@ -14,12 +14,13 @@ TABLETOP = "~/tabletop"
 _n = 0
 
 
-def card(eid, qty=1, lifetime=0.0, sphere=TABLETOP):
+def card(eid, qty=1, lifetime=0.0, sphere=TABLETOP, mutations=None):
     global _n
     _n += 1
     return ElementStack(id=f"t{_n}", entity_id=eid, quantity=qty,
                         position=(0, 0, 0), sphere_path=sphere,
-                        lifetime_remaining=lifetime)
+                        lifetime_remaining=lifetime,
+                        mutations=mutations or {})
 
 
 def verb(vid, time_remaining=0.0, recipe=""):

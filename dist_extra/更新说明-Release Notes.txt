@@ -1,0 +1,75 @@
+密教军师 · Cultist Adviser  v0.14.0
+
+==============================
+中文更新说明
+==============================
+
+本版重点修正终局与召唤的错误判断，并把复杂成就提示提前到真正的路线分叉。
+已安装旧版的用户可点击军师顶部更新提示自动升级。
+
+1. 真实终局仪式
+- 普通灯、铸、杯飞升需要 36，不再把桌面所有卡牌属性简单相加。
+- 逐张验证现有仪式的真实槽位，并列出可以直接照放的完整摆卡与消耗物。
+- 杯路线只有献祭恋人时才有 27 的替代配方；行尸不会把门槛降到 27。
+- 50 属性配方不能在同一局直接执行，它们指向下一局对应的使徒大胜路线。
+
+2. 真实召唤与资源调度
+- 11 种召唤物按仪式槽位逐一验证；没有尸体不会再提示可召唤行尸。
+- 就绪项显示完整摆卡、被消耗卡牌、持续时间和失控处理。
+- 军师会计算卡牌与行动格何时释放；争用同一资源的建议会标成备选。
+- 限时机会若因行动格占用已经赶不上，会直接说明，避免误导为普通排队任务。
+
+3. 三条使徒大胜路线
+- 铸：追踪破晓装置核心、蓝金、罗盘、厄客德娜和最终配方。
+- 杯：追踪美味之血、七重恩典、宾客名单、操线仙娥和最终宴席。
+- 灯：追踪十字路口、诱饵、七名见证者、持钥人和最终仪式。
+
+4. 复杂成就提前规划
+- 舞者：从盖提剧院阶段追踪恩主的迷恋/厌倦和求婚倒计时；显示旧形/新形平衡。
+- 教士：第一道伤疤前规划健康，明确 3 伤疤牝马与 7 伤疤母亲分叉。
+- 食尸鬼：提前说明墓地之口两条路线；淡白画作逐色显示 N/9 和下一份材料。
+- 流亡者：起誓前提示隐居与抗命互斥；击杀需 7 伤，抗命飞升只需 6 道永久伤势。
+- 只追踪尚未解锁的成就；守密人档仍保持不干预。
+
+验证：143 项自动测试全部通过。
+
+==============================
+English Release Notes
+==============================
+
+This release corrects endgame and summoning feasibility, and moves difficult
+achievement guidance back to the route decisions where it is actually useful.
+Existing installations can update from the banner at the top of the adviser.
+
+1. Real rite validation for ascension
+- Standard Lantern, Forge and Grail ascensions require 36.
+- Every plan is checked against the owned rite's actual slots and lists the
+  complete playable layout plus consumed cards.
+- Only Grail with a romantic sacrifice has the 27-point alternative. A Risen
+  does not lower the threshold.
+- The 50-point recipes are not craftable in the same run; they lead to the
+  matching Apostle legacy in the next run.
+
+2. Exact summoning and resource scheduling
+- All 11 summons are checked against real rite slots. Risen recipes require a corpse.
+- Ready summons show the complete layout, consumption, duration and control response.
+- Card/verb release times and cross-suggestion resource conflicts are tracked.
+- If a busy verb cannot return before a timed opportunity expires, the adviser says so.
+
+3. Three Apostle major-victory routes
+- Forge tracks the Dawnbreaker Core, Blue Gold, Compass, Echidna and finale.
+- Grail tracks Savorous Blood, Seven Graces, guests, Marinette and the final feast.
+- Lantern tracks the Crossroads, Allure, seven Witnesses, Key-holder and finale.
+
+4. Earlier planning for difficult achievements
+- Dancer tracks the benefactor from the Gaiety job, proposal deadlines, and
+  Old Form/New Form balance.
+- Priest plans Health before the first scar and marks the 3-scar/7-scar fork.
+- Ghoul explains the Graveyard Mouth fork early and tracks Palest Painting N/9.
+- Exile warns that vows close retirement; killing needs 7 wounds, while a
+  Defiance ascension needs only 6 permanent foe wounds.
+- Completed routes retire automatically; Keeper mode remains hands-off.
+
+Validation: all 143 automated tests pass.
+
+Project: https://github.com/fivood/cultist-adviser

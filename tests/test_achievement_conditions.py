@@ -590,3 +590,82 @@ def test_route_rescue_founding_window(monkeypatch, tmp_path):
                 card(frag("winter", 2)), card("funds", qty=5)])
     if 15 in got:
         assert "建团前" not in got[15].detail and "founding" not in got[15].detail.lower()
+
+
+# -------------------------- early tracking for difficult achievement routes ---
+
+def _all_achievements_locked(monkeypatch, tmp_path):
+    monkeypatch.setattr(ach, "parse_unlocks", lambda path=None: {})
+    unlock_file = tmp_path / "ach.json"
+    unlock_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(ach, "UNLOCK_PATH", unlock_file)
+
+
+def test_dancer_achievement_routes_start_before_the_finale(monkeypatch, tmp_path):
+    _all_achievements_locked(monkeypatch, tmp_path)
+    # The benefactor route is named while the Gaiety job is still the only
+    # relevant card — not after a proposal finally appears.
+    got = tops([card("legacydancerjob"), card("health"),
+                card("funds", qty=5)], legacy="dancer")
+    assert 39 in got and ("新生活" in got[39].title or "NEW LIFE" in got[39].title)
+
+    # The two form counters are read from the desire's mutations, and an
+    # imbalance produces a concrete correction toward the Meniscate route.
+    got = tops([card("ascensionchanged", mutations={
+                    "desiremoth_track": 3, "desireheart_track": 1}),
+                card("funds", qty=5)], legacy="dancer")
+    assert 49 in got
+    assert "3" in got[49].title and "1" in got[49].title
+
+
+def test_dancer_proposal_becomes_a_timed_talk_action(monkeypatch, tmp_path):
+    _all_achievements_locked(monkeypatch, tmp_path)
+    got = tops([card("benefactorm_proposedtoplayer", lifetime=45),
+                card("passion"), card("funds", qty=5)], legacy="dancer")
+    assert 146 in got and got[146].urgent
+    assert got[146].verb_id == "talk"
+    assert got[146].deadline == 45
+
+    # A busy Talk verb that releases after the proposal expires must not be
+    # described as a normal queueable action.
+    st = state([verb("time", 40), verb("talk", 60), verb("work", 0),
+                card("benefactorm_proposedtoplayer", lifetime=45),
+                card("passion"), card("funds", qty=5)], legacy="dancer")
+    proposal = next(s for s in advise(st).suggestions if s.priority == 146)
+    assert "赶不上" in proposal.detail or "cannot make" in proposal.detail
+
+
+def test_priest_health_plan_appears_before_first_scar(monkeypatch, tmp_path):
+    _all_achievements_locked(monkeypatch, tmp_path)
+    got = tops([card("priestjob"), card("health", qty=3),
+                card("funds", qty=5)], legacy="priest")
+    assert 41 in got
+    assert "3" in got[41].title and ("7" in got[41].detail or "seven" in got[41].detail)
+
+
+def test_ghoul_painting_tracks_nine_canvas_mutations(monkeypatch, tmp_path):
+    _all_achievements_locked(monkeypatch, tmp_path)
+    got = tops([card("dedication.remembrance", mutations={"ghoul.hunger": 2}),
+                card("canvas.pale", mutations={
+                    "colours.furious": 1, "colours.liminal": 1}),
+                card("memory.endless"), card("passion"),
+                card("funds", qty=5)], legacy="ghoul")
+    assert 79 in got
+    assert "2/9" in got[79].title
+    assert got[79].requires.get("memory.endless") == 1
+
+
+def test_exile_fork_and_defiance_use_six_permanent_wounds(monkeypatch, tmp_path):
+    _all_achievements_locked(monkeypatch, tmp_path)
+    fork = tops([card("temptation.obscurity"), card("funds", qty=5)],
+                legacy="exile")
+    assert 52 in fork
+
+    ready = tops([card("temptation.defiance", mutations={
+                        "defiancemarks": 7,
+                        "defiance.consecration.colonel": 1}),
+                  card("damage.foe", qty=6), card("rkx.foe"),
+                  card("funds", qty=5)], legacy="exile")
+    assert 84 in ready
+    assert "6/6" in ready[84].title
+    assert ready[84].verb_id == "send"

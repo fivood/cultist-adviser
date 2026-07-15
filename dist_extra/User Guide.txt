@@ -1,4 +1,4 @@
-Cultist Adviser · 密教军师  v0.13.0
+Cultist Adviser · 密教军师  v0.14.0
 ====================================
 
 A read-only floating adviser for Cultist Simulator.
@@ -140,6 +140,15 @@ A. The adviser reads the local achievement file (also used
    by GOG and Steam-offline). If Steam's cloud record never
    reached the local file, launch the game once and Steam
    writes it down.
+
+Q. Do difficult achievements only appear near the ending?
+A. No. Adviser/All-knowing tiers now warn before irreversible
+   forks: Dancer tracks the benefactor and Old/New Form balance
+   from the Gaiety job; Priest plans Health before the first scar;
+   Ghoul shows Palest Painting N/9 and the next memory/remnant;
+   Exile warns that vows close retirement and tracks the real
+   Defiance requirement (7 marks + 6 permanent foe wounds).
+   Completed routes retire automatically; Keeper hides them.
 
 Q. Where are the save backups?
 A. The adviser copies your save into a save_backups folder

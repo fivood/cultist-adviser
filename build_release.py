@@ -20,7 +20,8 @@ from cultist_adviser import __version__  # noqa: E402
 
 ROOT = Path(__file__).parent
 GUIDES = [ROOT / "dist_extra" / "使用说明.txt",
-          ROOT / "dist_extra" / "User Guide.txt"]
+          ROOT / "dist_extra" / "User Guide.txt",
+          ROOT / "dist_extra" / "更新说明-Release Notes.txt"]
 LEX_CACHE = ROOT / "cultist_adviser" / "lexicon_cache.json"
 LEX_BUNDLED = ROOT / "cultist_adviser" / "lexicon_cache_bundled.json"
 KN_CACHE = ROOT / "cultist_adviser" / "knowledge_cache.json"
