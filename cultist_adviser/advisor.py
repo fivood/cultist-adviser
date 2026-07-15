@@ -16,7 +16,7 @@ from .save_parser import GameState, ElementStack, Situation, stack_quantity, fin
 from .lexicon import display_name, recipe_name, situation_name, tr, get_language
 from .knowledge import (obtain_hint, use_hint, has_aspect, element_aspects,
                         vault_obstacles, obstacle_counters, startable_lines,
-                        decays_to, decay_is_bad)
+                        decays_to, decay_is_bad, recipe_feasibility)
 from . import achievements as ach
 
 TABLETOP = "~/tabletop"
@@ -146,6 +146,12 @@ class Suggestion:
     detail: str = ""
     urgent: bool = False
     spoiler: int = SPOILER_SURVIVAL  # minimum spoiler level that shows this
+    # Optional scheduling metadata.  It lets the final pass report occupied
+    # verbs and resource collisions instead of presenting mutually exclusive
+    # recommendations as if they could all be performed at once.
+    verb_id: str = ""
+    requires: dict[str, int] = field(default_factory=dict)
+    deadline: float = 0.0
 
 
 @dataclass
@@ -263,6 +269,40 @@ def _qty_actionable(state: GameState, entity_id: str) -> int:
                and not any(m in s.sphere_path for m in running))
 
 
+def _release_time(state: GameState, entity_id: str) -> float:
+    """Soonest time a currently locked copy returns; 0 means one is free now,
+    infinity means no copy exists.  Situation sphere paths contain the owning
+    verb marker, so this remains reliable when cards are nested in extra slots.
+    """
+    if _qty_actionable(state, entity_id):
+        return 0.0
+    waits = []
+    for sit in find_situations(state):
+        if sit.time_remaining <= 0:
+            continue
+        marker = f"!{sit.verb_id}_"
+        if any(s.entity_id == entity_id and marker in s.sphere_path
+               for s in _all_stacks(state)):
+            waits.append(sit.time_remaining)
+    return min(waits) if waits else float("inf")
+
+
+def _qty_available_by(state: GameState, entity_id: str, deadline: float = 0.0) -> int:
+    """Copies usable now, or released strictly before a known deadline."""
+    free = _qty_actionable(state, entity_id)
+    if free or deadline <= 0:
+        return free
+    return _qty_anywhere(state, entity_id) if _release_time(state, entity_id) < deadline else 0
+
+
+def _verb_ready_in(state: GameState, verb_id: str) -> float:
+    situations = find_situations(state, verb_id)
+    if not situations:
+        return float("inf")
+    return min((s.time_remaining for s in situations if s.time_remaining > 0),
+               default=0.0)
+
+
 THREAT_OF = {"despair": "dread", "visions": "fascination"}
 COUNTERS_OF = {"despair": ["contentment"], "visions": list(FUTURE_DREAD) + ["fleeting"]}
 
@@ -284,11 +324,19 @@ def _danger_rules(state: GameState, out: list[Suggestion]):
                 detail="",
             ))
             continue
-        have = any(_qty_anywhere(state, c) for c in counters)
+        have = any(_qty_available_by(state, c, s.time_remaining) for c in counters)
         cnames = _counters_text(counters if s.verb_id != "visions" else ["dread", "fleeting"])
         detail = tr(f"已吞 {eaten}/3 张「{display_name(threat)}」。放入 {cnames} 阻止，否则游戏结束。",
                     f"Holding {eaten}/3 {display_name(threat)}. Feed it {cnames} or the game ends.")
         if not have:
+            locked = [(c, _release_time(state, c)) for c in counters
+                      if _release_time(state, c) != float("inf")]
+            too_late = [(c, t) for c, t in locked if t >= s.time_remaining]
+            if too_late:
+                c, t = min(too_late, key=lambda x: x[1])
+                detail += tr(
+                    f"「{display_name(c)}」被其他行动占用，还要 {t:.0f} 秒才返回，赶不上本次倒计时。",
+                    f" {display_name(c)} is locked for another {t:.0f}s and will return too late.")
             if s.verb_id == "despair" and stack_quantity(state, "funds") >= 1:
                 detail += tr("没有安逸时可以「入梦」+ 1 资金买鸦片酊救急。",
                              " No Contentment? Dream with 1 Funds to buy a Tincture of Opium.")
@@ -447,13 +495,14 @@ def _season_forecast_rules(state: GameState, out: list[Suggestion]):
     unready = False
     if kind == "despair":
         unready = _threat_count(state, "dread", "despair") > 0 \
-            and not _qty_anywhere(state, "contentment")
+            and not _qty_available_by(state, "contentment", eta)
         prep = tr("场上有恐惧但没有安逸，时节一到就会被吸走。",
                   "Dread on the table and no Contentment — it will be devoured on arrival.") \
             + _obtain_tip(state, "contentment")
     elif kind == "visions":
         unready = _threat_count(state, "fascination", "visions") > 0 \
-            and not any(_qty_anywhere(state, c) for c in COUNTERS_OF["visions"])
+            and not any(_qty_available_by(state, c, eta)
+                        for c in COUNTERS_OF["visions"])
         prep = tr("场上有入迷但没有恐惧/一瞬追忆。",
                   "Fascination on the table and no Dread/Fleeting Reminiscence.") \
             + _obtain_tip(state, "fleeting")
@@ -643,11 +692,21 @@ def _pair_study_rules(state: GameState, out: list[Suggestion]) -> set[str]:
         lives = sorted(s.lifetime_remaining for s in stacks if s.lifetime_remaining > 0)
         soonest = lives[0] if lives else 0.0
         expiring = 0 < soonest <= 60
+        study_wait = _verb_ready_in(state, "study")
         detail = tr(f"两张一起放入「{display_name('study')}」可获得升级「{display_name(attr)}」的课程。",
                     f"Study two together for a lesson toward upgrading {display_name(attr)}.")
         if expiring:
             detail += tr(f"最快的一张约 {soonest:.0f} 秒后消失，抓紧！",
                          f" Soonest expires in ~{soonest:.0f}s — hurry!")
+            if study_wait == float("inf"):
+                detail += tr("但本局尚未解锁「研读」，这两张卡目前无法合成。",
+                             " Study is not unlocked in this run, so this pair "
+                             "cannot currently be combined.")
+            elif study_wait >= soonest:
+                detail += tr(
+                    f"但「研读」还要 {study_wait:.0f} 秒才空闲，已经赶不上；不要为这两张卡打乱更高优先级行动。",
+                    f" Study is busy for {study_wait:.0f}s, so this pair cannot be saved; "
+                    "do not disrupt a higher-priority action for it.")
             covered.add(eid)
         out.append(Suggestion(
             priority=130 if expiring else 70,
@@ -655,6 +714,9 @@ def _pair_study_rules(state: GameState, out: list[Suggestion]) -> set[str]:
                      f"{total}× {display_name(eid)} — study two together"),
             detail=detail,
             urgent=0 < soonest <= 30,
+            verb_id="study",
+            requires={eid: 2},
+            deadline=soonest if expiring else 0.0,
         ))
     return covered
 
@@ -1084,6 +1146,34 @@ def _opening_exile(state: GameState, out: list[Suggestion]):
            "and moving city shakes them off.")))
 
 
+def _opening_apostle(state: GameState, out: list[Suggestion], aspect: str):
+    job = f"legacyapostle{aspect}job"
+    if not _qty_actionable(state, job):
+        return
+    out.append(Suggestion(
+        125,
+        tr(f"使徒开局：先把「{display_name(job)}」放入「作业」",
+           f"Apostle opening: Work {display_name(job)} first"),
+        tr("10 秒获得 7 资金并依次解锁旧教团、旧追随者、研读、探索和入梦。"
+           "这是大胜专属下一局，不要按普通有志青年重新建团。",
+           "In 10s this grants 7 Funds and starts the chain restoring your old "
+           "cult, follower, Study, Explore and Dream. This is the dedicated "
+           "major-victory run, not a normal Aspirant opening."),
+        verb_id="work", requires={job: 1}))
+
+
+def _opening_apostle_forge(state: GameState, out: list[Suggestion]):
+    _opening_apostle(state, out, "forge")
+
+
+def _opening_apostle_grail(state: GameState, out: list[Suggestion]):
+    _opening_apostle(state, out, "grail")
+
+
+def _opening_apostle_lantern(state: GameState, out: list[Suggestion]):
+    _opening_apostle(state, out, "lantern")
+
+
 # Continuation starts reuse another legacy's opening cards.
 OPENING_ALIASES = {
     "survivor": "aspirant",
@@ -1100,6 +1190,9 @@ OPENING_GUIDES = {
     "priest": _opening_priest,
     "ghoul": _opening_ghoul,
     "exile": _opening_exile,
+    "apostleforge": _opening_apostle_forge,
+    "apostlegrail": _opening_apostle_grail,
+    "apostlelantern": _opening_apostle_lantern,
 }
 
 
@@ -1235,9 +1328,10 @@ def _opening_rules(state: GameState, out: list[Suggestion]):
     guide = OPENING_GUIDES.get(canon)
     if guide:
         _tagged(guide, state, out, SPOILER_GUIDE)
-    if canon != "exile":
+    special = canon == "exile" or canon.startswith("apostle")
+    if not special:
         _tagged(lambda st, o: _opening_survival(st, o, canon), state, out, SPOILER_GUIDE)
-    if canon != "exile" and _is_opening(state):
+    if not special and _is_opening(state):
         out.append(Suggestion(55,
             tr("开局阶段目标：稳经济 → 升属性 → 攒秘传",
                "Opening goals: income → attributes → lore"),
@@ -1608,44 +1702,72 @@ def _ascension_rules(state: GameState, out: list[Suggestion]):
                f"Ambition at {level}: wait for an Ambitions season"),
             detail))
     elif stage == "f":
-        # Real thresholds from ascension.json:
-        #   minor victory (小胜): ritual + 36 primary aspect + ascension_f
-        #   major (使徒/大胜):   ritual + 50 primary aspect + ascension_f
-        #   with-Risen half-bar: ritual + 27 primary + summoned + romantic
-        total = _lore_total(state, lore)
+        recipe_ids = {
+            "power": "minorforgevictory_trigger",
+            "sensation": "minorgrailvictory_trigger",
+            "enlightenment": "minorlanternvictory_trigger",
+        }
+        cards = _tabletop_card_counts(state)
+        normal = recipe_feasibility(recipe_ids[track], cards, (lore,))
+        romantic = None
+        if track == "sensation" and _qty_actionable(state, "romanticinterest"):
+            romantic = recipe_feasibility(
+                "minorgrailvictory_withromanticsacrifice", cards, ("grail",))
         has_lover = _qty_anywhere(state, "romanticinterest") > 0
-        risen_ready = _qty_anywhere(state, "spirit_wintera_moth") + \
-            _qty_anywhere(state, "spirit_wintera_edge") > 0
-        lore_zh = ASPECT_ZH.get(lore, lore)
-        parts = []
-        if total >= 50:
-            parts.append(tr(f"主系秘传合计 {total}/50 ✔ 可挑战大胜（使徒结局）。",
-                            f"Prime lore {total}/50 ✔ — major (Apostle) victory in reach."))
-        elif total >= 36:
-            parts.append(tr(f"主系秘传合计 {total}/36 ✔ 小胜可以了。还需再攒 {50 - total} 到大胜。",
-                            f"Prime lore {total}/36 ✔ (minor). {50 - total} more for major."))
-        elif has_lover and risen_ready and total >= 27:
-            parts.append(tr(f"主系秘传 {total}/27 ✔（有恋人尸体作为行尸，需求减半到 27）。",
-                            f"Prime lore {total}/27 ✔ (with-Risen halves the bar)."))
+        risen_ready = any(_qty_actionable(state, e) for e in
+                          ("spirit_wintera_moth", "spirit_wintera_edge"))
+        parts, plans = [], []
+        if normal and normal["ready"]:
+            plans.append(("36", normal["chosen"]))
+        if romantic and romantic["ready"]:
+            plans.append(("27", romantic["chosen"]))
+        if plans:
+            for threshold, chosen in plans:
+                route_zh = ("杯之恋人献祭" if threshold == "27" else "普通飞升")
+                route_en = ("Grail romantic sacrifice" if threshold == "27"
+                            else "standard ascension")
+                parts.append(tr(
+                    f"{route_zh}已就绪：{_chosen_text(chosen)}"
+                    f"{_consumption_text(chosen)}。",
+                    f"{route_en} ready: {_chosen_text(chosen)}"
+                    f"{_consumption_text(chosen)}. "))
         else:
-            parts.append(tr(f"主系秘传合计 {total}/36，还差 {36 - total}。",
-                            f"Prime lore {total}/36 — {36 - total} short."))
-        # spelled-out example ritual composition (representative — many valid combos)
-        parts.append(tr(f"仪式所需：任意仪式卡 + 「诱惑：{lore_zh}」欲望卡（f 阶）"
-                        f" + 主系秘传合计够阈值（可拼多张、含 12 级工具、10-12 级追随者、"
-                        f"15 级影响）。日落仪式 + 主系 6 级密传 + 12 级追随者 + 15 级影响是"
-                        "典型组合。",
-                        f"Rite needs: any rite card + Ascension: {lore.capitalize()} (stage f) "
-                        f"+ enough primary aspect (mix lore, level-12 tools, level-10-12 "
-                        f"followers, level-15 influences). The Sunset Rite + 6-lore + "
-                        "level-12 follower + level-15 influence is the canonical build."))
+            achieved = normal["achieved"].get(lore, 0) if normal else 0
+            inventory = _lore_total(state, lore)
+            parts.append(tr(
+                f"库存秘传 {inventory}/36；当前能在同一仪式中合法摆出的"
+                f"{ASPECT_ZH.get(lore, lore)}为 {achieved}/36。库存总数不等于可用总数。",
+                f"Lore inventory {inventory}/36; the best legal layout in one "
+                f"rite reaches {achieved}/36 {lore}. Tabletop totals alone do not count. "))
+            if normal and normal["chosen"]:
+                parts.append(tr(f"当前最佳摆法：{_chosen_text(normal['chosen'])}。",
+                                f"Best current layout: {_chosen_text(normal['chosen'])}. "))
+            if romantic:
+                rvalue = romantic["achieved"].get("grail", 0)
+                parts.append(tr(
+                    f"杯之恋人献祭另按 {rvalue}/27 计算；27 点只属于这条杯路线。",
+                    f"The Grail romantic-sacrifice alternative is {rvalue}/27; "
+                    "the 27 threshold belongs only to that route. "))
+        parts.append(tr(
+            "50 点配方在游戏数据中不可直接制作；大胜必须在普通胜利后的下一局选择对应使徒遗产。",
+            "The 50-aspect recipes are not craftable; major victories require "
+            "the matching Apostle legacy in the next run. "))
+        if risen_ready:
+            parts.append(tr(
+                "行尸不会把门槛降到 27：仍先完成 36 点普通飞升，终局随后自动吸入行尸。",
+                "A Risen does not reduce the bar to 27: complete the normal "
+                "36-aspect rite and the finale will then draw the Risen in. "))
         if has_lover:
-            parts.append(tr("有恋人：仪式最后一步别加激情，否则变成「共度余生」结局。",
-                            "You have a lover — don't add Passion to the finale slot, or "
-                            "the run turns into Ever After."))
-        out.append(Suggestion(70,
-            tr("欲望已达 6 级——终局清单", "Desire at 6 — the endgame checklist"),
-            "".join(parts)))
+            parts.append(tr(
+                "有恋人：终局决意槽不要放激情，否则会转成「共度余生」。",
+                "With a lover, do not add Passion to the final resolve slot "
+                "unless you want Ever After."))
+        chosen = plans[0][1] if plans else {}
+        out.append(Suggestion(
+            70,
+            tr("欲望已达 6 级——真实终局清单",
+               "Desire at 6 — slot-checked endgame"),
+            "".join(parts), verb_id="work", requires=chosen))
 
 
 # Mansus doors: way card -> single-lore requirement options (dream_mansus.json).
@@ -1714,6 +1836,40 @@ ALL_RITES = (
     "riteconsumetoolingredientfollowerinfluence",  # Rite Intercalate (endgame)
 )
 
+RITE_CONSUMES = {
+    "ritefollowerconsumeinfluence": ("influence",),
+    "ritetoolconsumeingredient": ("ingredient",),
+    "ritetoolconsumeinfluence": ("influence",),
+    "ritetoolfollowerconsumelore": ("lore",),
+    "ritefollowerconsumeingredient": ("ingredient",),
+    "riteinfluenceconsumeingredient": ("ingredient",),
+    "ritefollowerconsumetool": ("tool",),
+    "ritetoolconsumefollower": ("follower",),
+    "riteinfluenceconsumefollower": ("follower",),
+    "riteconsumetoolingredientfollowerinfluence":
+        ("tool", "ingredient", "follower", "influence"),
+}
+
+
+def _chosen_text(chosen: dict[str, int]) -> str:
+    parts = [f"「{display_name(e)}」×{n}" if n > 1 else f"「{display_name(e)}」"
+             for e, n in chosen.items()]
+    return " + ".join(parts)
+
+
+def _consumption_text(chosen: dict[str, int]) -> str:
+    rite = next((e for e in chosen if e in RITE_CONSUMES), "")
+    if not rite:
+        return ""
+    consumed = []
+    for category in RITE_CONSUMES[rite]:
+        victim = next((e for e in chosen
+                       if e != rite and has_aspect(e, category)), "")
+        consumed.append(display_name(victim) if victim else display_name(category))
+    names = ("、".join(consumed) if get_language() == "zh"
+             else ", ".join(consumed))
+    return tr(f"；本仪式会消耗：{names}", f"; this rite consumes: {names}")
+
 
 # Full summoning menu (summoning.json). Requirement dicts are aspect totals
 # needed alongside a rite card in Work. The Ring-Yew / Cartographer of Scars
@@ -1735,48 +1891,48 @@ SUMMONABLES = (
 
 
 def _summonable_rules(state: GameState, out: list[Suggestion]):
-    """List which summons the player's current lore + tool aspects allow, plus
-    those just out of reach. Fires once any rite card is in hand."""
-    ids = {s.entity_id for s in _all_stacks(state)}
+    """Show only summons which fit an owned rite's real slots."""
+    ids = {s.entity_id for s in _tabletop_stacks(state)}
     if not any(r in ids for r in ALL_RITES):
-        return  # no rite → summoning isn't yet a live option
-    levels = _lore_levels(state)
-    have_asp = {a: levels.get(a, 0) + _best_tool_aspect(state, a)
-                for a in ("edge", "forge", "grail", "heart", "knock",
-                          "lantern", "moth", "winter", "secrethistories")}
+        return
+    cards = _tabletop_card_counts(state)
     ready, near = [], []
     for eid, tier, req in SUMMONABLES:
-        gaps = {a: max(0, n - have_asp.get(a, 0)) for a, n in req.items()}
-        short_total = sum(gaps.values())
-        if short_total == 0:
-            ready.append((eid, tier, req))
-        elif short_total <= 3:
-            near.append((eid, tier, req, gaps))
+        result = recipe_feasibility(f"summon_{eid}", cards, tuple(req))
+        if result and result["ready"]:
+            ready.append((eid, tier, result["chosen"]))
+        elif result and result["chosen"] and sum(result["gaps"].values()) <= 3:
+            near.append((eid, tier, result["gaps"]))
     if not (ready or near):
         return
     lines = []
-    if ready:
-        rn = "、".join(display_name(e) for e, _, _ in ready) if get_language() == "zh" \
-            else ", ".join(display_name(e) for e, _, _ in ready)
-        lines.append(tr(f"可召唤：{rn}", f"Ready to summon: {rn}"))
-    if near:
-        for eid, tier, req, gaps in near[:3]:
+    for eid, _, chosen in ready[:4]:
+        lines.append(tr(f"可召唤 {display_name(eid)}：{_chosen_text(chosen)}"
+                        f"{_consumption_text(chosen)}",
+                        f"Ready — {display_name(eid)}: {_chosen_text(chosen)}"
+                        f"{_consumption_text(chosen)}"))
+    for eid, _, gaps in near[:3]:
+        if get_language() == "zh":
             gap_txt = "、".join(
-                f"{ASPECT_ZH.get(a, a)} 差 {n}" for a, n in gaps.items() if n
-            ) if get_language() == "zh" else \
-                ", ".join(f"{a} short {n}" for a, n in gaps.items() if n)
-            lines.append(tr(f"接近：{display_name(eid)}（{gap_txt}）",
-                            f"Close: {display_name(eid)} ({gap_txt})"))
+                f"{ASPECT_ZH.get(a, a)}差{n}" for a, n in gaps.items() if n)
+        else:
+            gap_txt = ", ".join(
+                f"{a} short {n}" for a, n in gaps.items() if n)
+        lines.append(tr(f"接近：{display_name(eid)}（合法摆法仍差 {gap_txt}）",
+                        f"Close: {display_name(eid)} (legal layout {gap_txt})"))
     sep = "；" if get_language() == "zh" else "; "
-    out.append(Suggestion(17,
+    first_plan = ready[0][2] if ready else {}
+    out.append(Suggestion(
+        17,
         tr(f"召唤菜单：{len(ready)}/{len(SUMMONABLES)} 可召",
            f"Summoning menu: {len(ready)}/{len(SUMMONABLES)} available"),
-        sep.join(lines) + tr("。在「作业」放入仪式卡 + 所需秘传/工具即可召唤。"
-                             "召唤物通常存在 180 秒，行尸 120 秒；30% 概率失控，"
-                             "投 1 激情压制或 1 理性驱逐。",
-                             ". Work: rite card + the lore/tools listed. Summons "
-                             "last 180s (Risen: 120s); a 30% control check may "
-                             "require Passion to subdue or Reason to banish.")))
+        sep.join(lines) + tr(
+            "。只有能放进现有仪式真实槽位的组合才计为可召。召唤物通常存在 180 秒，"
+            "行尸 120 秒；失控时投 1 激情压制或 1 理性驱逐。",
+            ". Only combinations that fit an owned rite's real slots count. "
+            "Summons last about 180s (Risen: 120s); use Passion to subdue or "
+            "Reason to banish on a failed control check."),
+        verb_id="work", requires=first_plan))
 
 
 def _rite_inventory_rules(state: GameState, out: list[Suggestion]):
@@ -2262,6 +2418,291 @@ def _exalt_rules(state: GameState, out: list[Suggestion]):
     # Backwards-compatible shim: _follower_rank_rules now covers exaltation
     # too. Keep the function so external callers don't break.
     _follower_rank_rules(state, out)
+
+
+def _has_mutation(state: GameState, key: str) -> bool:
+    for stack in _all_stacks(state):
+        try:
+            if int((stack.mutations or {}).get(key, 0)) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _apostle_kind(state: GameState) -> str:
+    legacy = (state.active_legacy or "").lower()
+    for kind in ("forge", "grail", "lantern"):
+        if legacy == f"apostle{kind}" or any(
+                s.entity_id.startswith(f"apostle{kind}.")
+                or s.entity_id == f"legacyapostle{kind}job"
+                for s in _all_stacks(state)):
+            return kind
+    return ""
+
+
+def _apostle_forge_rules(state: GameState, out: list[Suggestion]):
+    ids = {s.entity_id for s in _all_stacks(state)}
+    q = lambda e: _qty_actionable(state, e)
+    fuel = q("apostleforge.pillarfuel")
+    p2 = "apostleforge.pillar2" in ids
+    p2d = "apostleforge.pillar2.dormant" in ids
+    p3 = "apostleforge.pillar3" in ids
+    p4 = _has_mutation(state, "apostleforge.pillar4")
+    p4d = _has_mutation(state, "apostleforge.pillar4.dormant")
+    p5 = "apostleforge.pillar5" in ids
+    cards = _tabletop_card_counts(state)
+    final = recipe_feasibility("work.apostleforge.majorvictory", cards)
+    lines, next_req, next_verb = [], {}, ""
+    if p2:
+        lines.append(tr("破晓装置核心 ✔", "Dawnbreaker Core ✔"))
+    elif p2d:
+        lines.append(tr("核心已铸成但未唤醒：作业 = 核心 + 14阶铸秘传。",
+                        "Core forged but dormant: Work it with level-14 Forge lore."))
+        if q("fragmentforgeg"):
+            next_req = {"apostleforge.pillar2.dormant": 1, "fragmentforgeg": 1}
+            next_verb = "work"
+    else:
+        lines.append(tr("核心：作业 = 12阶铸工具 + 1份使徒燃料；随后加14阶铸秘传唤醒。",
+                        "Core: Work a level-12 Forge tool + Apostle fuel; then awaken "
+                        "it with level-14 Forge lore."))
+        if q("toolforgef") and fuel:
+            next_req, next_verb = {"toolforgef": 1, "apostleforge.pillarfuel": 1}, "work"
+    if p3:
+        lines.append(tr("蓝金 ✔", "Blue Gold ✔"))
+    else:
+        ingredient = next((e for e in ("ingredientforgef", "ingredientforged",
+                                       "ingredientforgeb") if q(e)), "")
+        if ingredient:
+            lines.append(tr(
+                f"蓝金：把「{display_name(ingredient)}」与使徒燃料连续作业，"
+                "每次升两阶，最高阶再加工成蓝金。",
+                f"Blue Gold: repeatedly Work {display_name(ingredient)} with "
+                "Apostle fuel; each pass raises it two levels, then prepare the "
+                "highest ingredient."))
+            if fuel and not next_req:
+                next_req, next_verb = {ingredient: 1, "apostleforge.pillarfuel": 1}, "work"
+        else:
+            lines.append(tr("蓝金：还缺一份低阶铸原料和至少3轮使徒燃料。",
+                            "Blue Gold: acquire a low Forge ingredient and reserve "
+                            "at least three Ambitions-fuel cycles."))
+    if p4:
+        lines.append(tr("选定罗盘与世界裂隙 ✔", "Chosen Compass and Flaw ✔"))
+    elif p4d:
+        lines.append(tr("罗盘已受洗：用「探索」投入这名追随者，令其看见世界裂隙。",
+                        "Compass baptised: Explore with that follower to reveal the "
+                        "Flaw in the World."))
+        next_verb = next_verb or "explore"
+    else:
+        lines.append(tr("罗盘：作业 = 一名凡人追随者 + 使徒燃料；不要加入秘传、工具或闰时仪式。"
+                        "之后再用该追随者探索。",
+                        "Compass: Work a mortal follower + Apostle fuel; add no lore, "
+                        "tool or Rite Intercalate. Then Explore with that follower."))
+    if p5:
+        lines.append(tr("厄客德娜的钥匙 ✔", "Echidna's Key ✔"))
+    elif "echidna" in ids:
+        lines.append(tr("钥匙：与厄客德娜交谈，献一名升华者；圣九首会可用教团本身免除献祭。",
+                        "Key: Talk to Echidna and give an exalted follower; the Society "
+                        "of St Hydra can invoke the cult instead of a sacrifice."))
+    else:
+        lines.append(tr("钥匙：带使徒燃料与苏洛恰那交谈，请她联络厄客德娜。",
+                        "Key: talk to Sulochana with Apostle fuel for an introduction "
+                        "to Echidna."))
+    if final and final["ready"]:
+        chosen = final["chosen"]
+        lines.append(tr(f"大胜配方已齐：{_chosen_text(chosen)}。",
+                        f"Major-victory recipe ready: {_chosen_text(chosen)}."))
+        next_req, next_verb = chosen, "work"
+        priority = 105
+    else:
+        lines.append(tr("终局另需14阶启秘传与15阶铸影响。使徒燃料由野心时节从导师处产生。",
+                        "Finale also needs level-14 Knock lore and a level-15 Forge "
+                        "influence. Ambitions seasons draw Apostle fuel from the mentor."))
+        priority = 82
+    out.append(Suggestion(priority,
+        tr(f"铸之使徒：大工支柱 {sum((p2, p3, p4, p5))}/4",
+           f"Forge Apostle: Great Work pillars {sum((p2, p3, p4, p5))}/4"),
+        "；".join(lines) if get_language() == "zh" else " ".join(lines),
+        verb_id=next_verb, requires=next_req))
+
+
+def _apostle_grail_rules(state: GameState, out: list[Suggestion]):
+    ids = {s.entity_id for s in _all_stacks(state)}
+    q = lambda e: _qty_actionable(state, e)
+    fuel = q("apostlegrail.pillarfuel")
+    p2 = "apostlegrail.pillar2" in ids
+    p2d = "apostlegrail.pillar2.dormant" in ids
+    p3 = "apostlegrail.pillar3" in ids
+    p4 = "apostlegrail.pillar4" in ids
+    cards = _tabletop_card_counts(state)
+    final = recipe_feasibility("work.apostlegrail.majorvictory", cards)
+    lines, next_req, next_verb = [], {}, ""
+    blood_stack = next((s for s in _all_stacks(state)
+                        if s.entity_id == "apostlegrail.pillar2"), None)
+    if p2:
+        life = blood_stack.lifetime_remaining if blood_stack else 0
+        lines.append(tr(f"美味之血维持中（约{life:.0f}秒）✔",
+                        f"Savorous Blood active (~{life:.0f}s) ✔"))
+    elif p2d:
+        lines.append(tr("生命危险：立刻入梦 = 衰败之血 + 使徒燃料，恢复美味之血。",
+                        "Mortal danger: Dream Forlorn Blood + Apostle fuel now to "
+                        "restore Savorous Blood."))
+        if fuel:
+            next_req = {"apostlegrail.pillar2.dormant": 1,
+                        "apostlegrail.pillarfuel": 1}
+            next_verb = "dream"
+    else:
+        lines.append(tr("先完成使徒开局作业；它会给出衰败之血和第一份使徒燃料。",
+                        "Complete the Apostle opening Work first; it yields "
+                        "Forlorn Blood and the first Apostle fuel."))
+    if p3:
+        flavours = {a: _mutation_value(state, "apostlegrail.pillar3", a)
+                    for a in ("grailflavour", "heartflavour", "mothflavour")}
+        missing = [a for a, n in flavours.items() if not n]
+        if missing:
+            ingredient = {"grailflavour": "ingredientgraild",
+                          "heartflavour": "ingredientheartf",
+                          "mothflavour": "ingredientmothd"}[missing[0]]
+            lines.append(tr(
+                f"七重恩典还缺{len(missing)}味：作业 = 恩典 +「{display_name(ingredient)}」；"
+                "三味分别是杯8、心12、蛾8原料。",
+                f"Seven Graces lacks {len(missing)} flavour(s): Work it with "
+                f"{display_name(ingredient)}. The three are Grail-8, Heart-12 "
+                "and Moth-8 ingredients."))
+        else:
+            lines.append(tr("七重恩典三味齐备 ✔", "Seven Graces fully flavoured ✔"))
+    else:
+        lines.append(tr("七重恩典：探索 = 拍卖行 + 使徒燃料买下秘香，再分别加入杯8、心12、蛾8原料。",
+                        "Seven Graces: Explore auction house + Apostle fuel to buy "
+                        "the spices, then add Grail-8, Heart-12 and Moth-8 ingredients."))
+        if q("locationauctionhouse") and fuel and not next_req:
+            next_req = {"locationauctionhouse": 1, "apostlegrail.pillarfuel": 1}
+            next_verb = "explore"
+    progress = next((e for e in ids
+                     if e.startswith("apostlegrail.pillar4.inprogress")), "")
+    if p4:
+        lines.append(tr("宴会宾客与操线仙娥 ✔", "Host and Marinette ✔"))
+    else:
+        invitations = int(progress.rsplit("inprogress", 1)[-1]) if progress else 0
+        approval = _mutation_value(state, "marinette", "approval")
+        start = (tr("先与「享宴配方」交谈建立宾客名单；",
+                    "Talk to the Vitulation Recipe first to create the guest list; ")
+                 if not progress else "")
+        marinette = (tr("先与苏洛恰那谈享宴配方，请她联络操线仙娥（苏洛恰那会离开）；",
+                        "talk to Sulochana about the Recipe for Marinette's introduction "
+                        "(Sulochana leaves); ")
+                     if "marinette" not in ids else "")
+        lines.append(start + marinette + tr(
+            f"宴会进度：邀请 {invitations}/7，操线仙娥满足 {approval}/7。"
+            "用秘氛逐次扩充宾客；与仙娥交谈献追随者/雇员逐次满足她，均到7后合并。",
+            f"Host: invitations {invitations}/7, Marinette approval {approval}/7. "
+            "Feed Mystique to the guest list; Talk to Marinette with followers or "
+            "hirelings until both reach 7, then combine."))
+    if final and final["ready"]:
+        chosen = final["chosen"]
+        lines.append(tr(f"大胜配方已齐：{_chosen_text(chosen)}。",
+                        f"Major-victory recipe ready: {_chosen_text(chosen)}."))
+        next_req, next_verb, priority = chosen, "work", 105
+    else:
+        lines.append(tr("终局还需14阶心秘传、15阶杯影响与12阶杯工具。",
+                        "Finale also needs level-14 Heart lore, level-15 Grail "
+                        "influence and a level-12 Grail tool."))
+        priority = 170 if p2d else (150 if p2 and blood_stack
+                                    and 0 < blood_stack.lifetime_remaining <= 90 else 82)
+    out.append(Suggestion(priority,
+        tr("杯之使徒：享宴支柱", "Grail Apostle: the Vitulation"),
+        "；".join(lines) if get_language() == "zh" else " ".join(lines),
+        urgent=priority >= 150, verb_id=next_verb, requires=next_req,
+        deadline=(blood_stack.lifetime_remaining if blood_stack and priority >= 150 else 0)))
+
+
+def _apostle_lantern_rules(state: GameState, out: list[Suggestion]):
+    ids = {s.entity_id for s in _all_stacks(state)}
+    q = lambda e: _qty_actionable(state, e)
+    fuel = q("apostlelantern.pillarfuel")
+    p2 = "apostlelantern.pillar2" in ids
+    p3_stack = next((s for s in _all_stacks(state)
+                     if s.entity_id == "apostlelantern.pillar3"), None)
+    p3 = p3_stack is not None
+    p4 = "apostlelantern.pillar4" in ids
+    cards = _tabletop_card_counts(state)
+    final = recipe_feasibility("work.apostlelantern.majorvictory", cards)
+    lines, next_req, next_verb = [], {}, ""
+    if p2:
+        lines.append(tr("十字路口 ✔", "Crossroads ✔"))
+    else:
+        lines.append(tr("十字路口：通过孔雀之门后，入梦 = 孔雀之门道路 + 使徒燃料。",
+                        "Crossroads: beyond the Peacock Door, Dream its Way with "
+                        "Apostle fuel."))
+        if q("waypeacock") and fuel:
+            next_req, next_verb = {"waypeacock": 1,
+                                   "apostlelantern.pillarfuel": 1}, "dream"
+    if p3:
+        life = p3_stack.lifetime_remaining
+        lines.append(tr(f"诱饵维持中（约{life:.0f}秒）✔；快枯萎时研读 = 诱饵 + 入迷续期。",
+                        f"Allure active (~{life:.0f}s) ✔; Study it with Fascination "
+                        "before it withers."))
+        if 0 < life <= 90 and q("fascination"):
+            next_req, next_verb = {"apostlelantern.pillar3": 1,
+                                   "fascination": 1}, "study"
+    elif p2:
+        lines.append(tr("诱饵：入梦 = 十字路口 + 使徒燃料 + 15阶灯影响。",
+                        "Allure: Dream Crossroads + Apostle fuel + level-15 "
+                        "Lantern influence."))
+        if fuel and q("influencelanterng"):
+            next_req, next_verb = {"apostlelantern.pillar2": 1,
+                                   "apostlelantern.pillarfuel": 1,
+                                   "influencelanterng": 1}, "dream"
+    witness = next((e for e in ids
+                    if e.startswith("apostlelantern.pillar4.inprogress")), "")
+    count = int(witness.rsplit("inprogress", 1)[-1]) if witness else (7 if p4 else 0)
+    if p4:
+        lines.append(tr("七名见证者 ✔", "Seven Witnesses ✔"))
+    else:
+        lines.append(tr(
+            f"见证者 {count}/7：每次交谈 = 镜中少女 + 诱饵，消耗镜中少女并产生1邪名。",
+            f"Witnesses {count}/7: each Talk uses a Maid-in-the-Mirror + Allure, "
+            "consumes the Maid and produces 1 Notoriety."))
+    keyholder = "kleidouchos" in ids
+    promise = _mutation_value(state, "kleidouchos", "promise")
+    if keyholder and promise:
+        lines.append(tr("持钥人承诺赴会 ✔", "Key-holder promised ✔"))
+    elif keyholder:
+        lines.append(tr("与持钥人交谈取得承诺。", "Talk to the Key-holder for her promise."))
+    elif q("spirit_lanterne_secret") and fuel:
+        lines.append(tr("交谈 = 特蕾莎 + 使徒燃料，请她引荐持钥人；特蕾莎会被消耗。",
+                        "Talk Teresa + Apostle fuel for the Key-holder introduction; "
+                        "Teresa is consumed."))
+    else:
+        lines.append(tr("先召唤特蕾莎（启10+窍5+秘史2），再用使徒燃料请她引荐持钥人。",
+                        "Summon Teresa (Lantern 10 + Knock 5 + Secret Histories 2), "
+                        "then spend Apostle fuel for the Key-holder introduction."))
+    if final and final["ready"]:
+        chosen = final["chosen"]
+        lines.append(tr(f"大胜配方已齐：{_chosen_text(chosen)}。",
+                        f"Major-victory recipe ready: {_chosen_text(chosen)}."))
+        next_req, next_verb, priority = chosen, "work", 105
+    else:
+        lines.append(tr("终局另需12阶灯原料、10阶蛾秘传和12阶灯工具。",
+                        "Finale also needs a level-12 Lantern ingredient, level-10 "
+                        "Moth lore and a level-12 Lantern tool."))
+        priority = 150 if p3_stack and 0 < p3_stack.lifetime_remaining <= 90 else 82
+    out.append(Suggestion(priority,
+        tr(f"灯之使徒：门外之门（见证者 {count}/7）",
+           f"Lantern Apostle: Gate Outwards (Witnesses {count}/7)"),
+        "；".join(lines) if get_language() == "zh" else " ".join(lines),
+        urgent=priority >= 150, verb_id=next_verb, requires=next_req,
+        deadline=(p3_stack.lifetime_remaining if p3_stack and priority >= 150 else 0)))
+
+
+def _apostle_rules(state: GameState, out: list[Suggestion]):
+    kind = _apostle_kind(state)
+    if kind == "forge":
+        _apostle_forge_rules(state, out)
+    elif kind == "grail":
+        _apostle_grail_rules(state, out)
+    elif kind == "lantern":
+        _apostle_lantern_rules(state, out)
 
 
 def _long_rules(state: GameState, out: list[Suggestion]):
@@ -2855,6 +3296,17 @@ def _progression_rules(state: GameState, out: list[Suggestion]):
     if (state.active_legacy or "").startswith("exile"):
         _exile_rules(state, out)  # the Exile plays by its own rules
         return
+    if _apostle_kind(state):
+        _tagged(_apostle_rules, state, out, SPOILER_GUIDE)
+        _tagged(_long_rules, state, out, SPOILER_GUIDE)
+        _tagged(_mansus_expedition_rules, state, out, SPOILER_GUIDE)
+        _tagged(_rite_inventory_rules, state, out, SPOILER_GUIDE)
+        _tagged(_summonable_rules, state, out, SPOILER_GUIDE)
+        _tagged(_vault_inventory_rules, state, out, SPOILER_GUIDE)
+        _tagged(_mansus_door_rules, state, out, SPOILER_GUIDE)
+        _tagged(_follower_rank_rules, state, out, SPOILER_GUIDE)
+        _book_rules(state, out)
+        return
     _rival_rules(state, out)          # tags itself: doom 0, early warning 1
     _tagged(_cult_rules, state, out, SPOILER_GUIDE)
     _tagged(_midgame_rules, state, out, SPOILER_GUIDE)
@@ -2944,6 +3396,65 @@ def _season_timeline(state: GameState) -> str:
     return line
 
 
+def _schedule_suggestions(state: GameState, suggestions: list[Suggestion]) -> None:
+    """Annotate verb waits and resource collisions across recommendations.
+
+    Rules are intentionally independent, but the player owns only one Work,
+    Study, Dream, Talk and Explore verb.  This pass turns the ranked list into
+    a small queue: higher-priority concrete plans reserve their cards; lower
+    plans sharing those cards are explicitly marked as alternatives.
+    """
+    available = _tabletop_card_counts(state)
+    reserved: dict[str, int] = {}
+    owners: dict[str, str] = {}
+    for suggestion in sorted(suggestions, key=lambda s: -s.priority):
+        wait = (_verb_ready_in(state, suggestion.verb_id)
+                if suggestion.verb_id else 0.0)
+        if suggestion.verb_id and 0 < wait < float("inf"):
+            if not (suggestion.deadline and wait >= suggestion.deadline):
+                suggestion.detail += tr(
+                    f"「{display_name(suggestion.verb_id)}」正忙，还要约 {wait:.0f} 秒；"
+                    "此项应排在其后。",
+                    f" {display_name(suggestion.verb_id)} is busy for ~{wait:.0f}s; "
+                    "queue this afterwards.")
+        if not suggestion.requires:
+            continue
+        conflicts = []
+        locked = []
+        for eid, needed in suggestion.requires.items():
+            free = available.get(eid, 0)
+            if free < needed:
+                release = _release_time(state, eid)
+                if release < float("inf"):
+                    locked.append((eid, needed - free, release))
+            if reserved.get(eid, 0) + needed > free and eid in owners:
+                conflicts.append((eid, owners[eid]))
+        if locked:
+            text_zh = "、".join(
+                f"{display_name(e)}×{n}（{t:.0f}秒后返回）"
+                for e, n, t in locked)
+            text_en = ", ".join(
+                f"{display_name(e)}×{n} (returns in {t:.0f}s)"
+                for e, n, t in locked)
+            suggestion.detail += tr(
+                f"当前材料被占用：{text_zh}。",
+                f" Required cards are currently locked: {text_en}.")
+        if conflicts:
+            names_zh = "、".join(
+                f"{display_name(e)}（优先给「{owner}」）" for e, owner in conflicts)
+            names_en = ", ".join(
+                f"{display_name(e)} (reserved for {owner})" for e, owner in conflicts)
+            suggestion.detail += tr(
+                f"这是一项备选方案，和更高优先级任务争用：{names_zh}。",
+                f" This is an alternative plan; it conflicts with: {names_en}.")
+            continue
+        if locked:
+            continue
+        for eid, needed in suggestion.requires.items():
+            reserved[eid] = reserved.get(eid, 0) + needed
+            owners[eid] = suggestion.title
+
+
 def advise(state: GameState, spoiler: int = SPOILER_REVEAL) -> Advice:
     global _spoiler
     _spoiler = spoiler
@@ -2971,6 +3482,7 @@ def advise(state: GameState, spoiler: int = SPOILER_REVEAL) -> Advice:
             tr("命运喜欢保守秘密。想看的话，调高顶部的剧透等级。",
                "Fate keeps its secrets. Raise the spoiler level up top if you must know.")))
     advice.suggestions = shown
+    _schedule_suggestions(state, advice.suggestions)
 
     if not advice.suggestions and running:
         advice.suggestions.append(Suggestion(0, tr("等待中", "Waiting"),

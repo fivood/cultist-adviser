@@ -100,15 +100,30 @@ dialog shows the full decay chain.
 
 **Opening walkthroughs** — all 4 base professions (Aspirant / Detective /
 Bright Young Thing / Physician) + 4 DLC starts (Dancer / Priest / Ghoul /
-Exile), stepped by each legacy's own plot cards, every number checked
-against the game's recipe JSON.
+Exile), plus the three Forge/Grail/Lantern Apostle openings, stepped by each
+legacy's own plot cards and checked against the game's recipe JSON.
 
 **Mid/late game progression** — cult-founding checklist (missing an
 acquaintance or the lore? one line says which), Ambition 1→6 stage checks,
 Mansus door-by-door requirements against your actual lore, exact Stag Door
 riddle answers, rival (Long candidate) warnings with proactive counterplay
-during their scheming window, endgame accounting (primary lore X/36 —
-**it says so when you have enough**).
+during their scheming window, and a slot-checked endgame. It no longer adds
+loose tabletop lore: it names the exact five-card rite layout and consumed
+card. Standard ascension is 36; 27 belongs only to Grail romantic sacrifice;
+a Risen does not lower the bar; uncraftable 50-aspect placeholders are not
+reported as a same-run major victory.
+
+**Three Apostle major-victory routes** — Forge tracks the Dawnbreaker Core,
+Blue Gold, Chosen Compass and Echidna's Key; Grail tracks lethal Savorous
+Blood, the Seven Graces, the Host and Marinette; Lantern tracks the
+Crossroads, decaying Allure, seven Witnesses and the Key-holder. Each route
+shows pillar progress, next material, recovery steps and a slot-checked
+final recipe.
+
+**Real summoning layouts** — all 11 summons are checked against the slots of
+rites actually owned. A Risen is never marked ready without a corpse, and a
+tool that cannot fit the selected rite is not counted. Ready entries name the
+full layout, consumed card, lifetime and failed-control response.
 
 **Recruitment planning** — affinity overview for acquaintances on the board
 (all 23 NPCs have fixed leanings); when the cult lacks a key Moth/Edge
@@ -150,7 +165,10 @@ real success rates and failure costs based on your followers' Moth/Edge/
 Winter levels.
 
 **Idle verb suggestions** — the best current use for every idle verb, with
-reasons, plus the ingredients-ready startable recipes.
+reasons, plus the ingredients-ready startable recipes. Recommendations also
+account for verb release times and cards locked in running actions; a
+lower-priority plan competing with an endgame plan for the same card is
+marked as an alternative instead of implying both can run together.
 
 **Board resource table** — a collapsible tree grouped by category
 (threats / resources / fragments / lore / influences / books / people /

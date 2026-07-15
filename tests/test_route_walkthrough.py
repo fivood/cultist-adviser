@@ -76,3 +76,49 @@ def test_dancer_change_route():
     got = tops([card("skillhealthb"), card("ascensionchangeg"),
                 card("funds", qty=5)], legacy="dancer")
     assert 80 in got
+
+
+def test_forge_apostle_route():
+    # Dedicated opening restores the inherited organisation.
+    assert 125 in tops([card("legacyapostleforgejob")], legacy="apostleforge")
+    # A forged but dormant core points to the exact awakening material.
+    got = tops([card("apostleforge.pillar1"),
+                card("apostleforge.pillar2.dormant"),
+                card("fragmentforgeg"), card("funds", qty=7)],
+               legacy="apostleforge")
+    assert 82 in got and "14" in got[82].detail
+    assert 54 not in got, "ordinary ambition-stage banner must not leak into Apostle"
+
+
+def test_grail_apostle_route_and_blood_deadline():
+    assert 125 in tops([card("legacyapostlegrailjob")], legacy="apostlegrail")
+    # Dormant blood is the route's immediate death threat.
+    got = tops([card("apostlegrail.pillar1"),
+                card("apostlegrail.pillar2.dormant"),
+                card("apostlegrail.pillarfuel"), card("funds", qty=7)],
+               legacy="apostlegrail")
+    assert 170 in got and got[170].urgent
+    assert "入梦" in got[170].detail
+    # Active blood nearing decay is warned before it becomes dormant.
+    got = tops([card("apostlegrail.pillar1"),
+                card("apostlegrail.pillar2", lifetime=60),
+                card("funds", qty=7)], legacy="apostlegrail")
+    assert 150 in got and got[150].urgent
+
+
+def test_lantern_apostle_route_and_allure_deadline():
+    assert 125 in tops([card("legacyapostlelanternjob")], legacy="apostlelantern")
+    # Crossroads + fuel + Splendour gives the concrete Allure step.
+    got = tops([card("apostlelantern.pillar1"),
+                card("apostlelantern.pillar2"),
+                card("apostlelantern.pillarfuel"),
+                card("influencelanterng"), card("funds", qty=7)],
+               legacy="apostlelantern")
+    assert 82 in got and "诱饵" in got[82].detail
+    # The Allure expires and must be maintained with Fascination.
+    got = tops([card("apostlelantern.pillar1"),
+                card("apostlelantern.pillar2"),
+                card("apostlelantern.pillar3", lifetime=60),
+                card("fascination"), card("funds", qty=7)],
+               legacy="apostlelantern")
+    assert 150 in got and got[150].urgent

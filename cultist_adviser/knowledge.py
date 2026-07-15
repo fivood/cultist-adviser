@@ -7,6 +7,7 @@ Cached to knowledge_cache.json — delete it to rebuild after a game update.
 """
 import json
 import re
+from itertools import product
 from pathlib import Path
 
 from .config import PROJECT_DIR
@@ -374,14 +375,14 @@ def _unit_aspects(entity_id: str) -> dict:
 
 def _match_requirements(req: dict, neg: dict, cards: dict) -> dict | None:
     """Greedy pick of cards (eid -> copies) whose combined aspects satisfy the
-    positive requirements without tripping the negative ones. Approximates the
-    engine (which checks the cards actually slotted): we cap the pick at 4
-    distinct cards / 8 copies, since more can rarely co-slot in one verb."""
+    positive requirements without tripping the negative ones. This is only a
+    cheap pre-filter before the real slot simulation; endgame rites and Apostle
+    works legitimately use five to eight distinct cards."""
     if not req:
         return None
     need = dict(req)
     chosen: dict[str, int] = {}
-    for _ in range(8):
+    for _ in range(12):
         if not need:
             break
         best_eid, best_gain = None, 0
@@ -400,7 +401,7 @@ def _match_requirements(req: dict, neg: dict, cards: dict) -> dict | None:
             need[k] -= asp.get(k, 0)
             if need[k] <= 0:
                 del need[k]
-    if need or len(chosen) > 4:
+    if need or len(chosen) > 8:
         return None
     agg: dict[str, int] = {}
     for eid, n in chosen.items():
@@ -518,6 +519,74 @@ def startable_recipes(action: str, cards: dict, limit: int = 6) -> list[dict]:
         matches.append({"recipe": r, "chosen": placed})
     matches.sort(key=lambda m: -len(m["recipe"]["req"]))
     return matches[:limit]
+
+
+def recipe_feasibility(recipe_id: str, cards: dict,
+                       variable_aspects: tuple[str, ...] = ()) -> dict | None:
+    """Return an exact slot-level plan for one recipe, plus the closest legal
+    partial plan for selected numeric aspects.
+
+    ``startable_recipes`` answers the broad "what can I start?" question.  The
+    adviser also needs to audit a *specific* endgame/summoning recipe without
+    pretending that aspect totals from cards which cannot co-slot are usable.
+    For variable aspects (36 Lantern, Knock 5 + Forge 10 + Lantern 2, etc.) we
+    lower only those thresholds and search for the strongest arrangement that
+    still fits the verb and element-opened slots.  Exact card requirements such
+    as a rite, corpse or desire are never relaxed.
+    """
+    rid = recipe_id.lower()
+    recipe = next((r for r in _recipes
+                   if r["id"] == rid and r["craftable"]), None)
+    if recipe is None:
+        return None
+    action = recipe["action"]
+    req = dict(recipe["req"])
+    neg = dict(recipe.get("neg", {}))
+    variables = tuple(a.lower() for a in variable_aspects if a.lower() in req)
+    targets = {a: req[a] for a in variables}
+
+    def attempt(candidate_req: dict):
+        if _match_requirements(candidate_req, neg, cards) is None:
+            return None
+        return _slot_sim(candidate_req, neg, action, cards)
+
+    exact = attempt(req)
+    if exact is not None:
+        return {"recipe": recipe, "ready": True, "chosen": exact,
+                "target": targets, "achieved": dict(targets),
+                "gaps": {a: 0 for a in variables}}
+
+    # With no variable threshold there is no meaningful partial recipe.
+    if not variables:
+        return {"recipe": recipe, "ready": False, "chosen": None,
+                "target": {}, "achieved": {}, "gaps": {}}
+
+    # Highest total fulfilled aspect first; ties favour satisfying more whole
+    # requirements.  Summoning maxima are tiny (at most 5*10*2), so exhaustive
+    # threshold search is both deterministic and cheap.
+    candidates = product(*(range(targets[a], -1, -1) for a in variables))
+    ranked = sorted(candidates,
+                    key=lambda vals: (sum(vals),
+                                      sum(v == targets[a]
+                                          for a, v in zip(variables, vals))),
+                    reverse=True)
+    for vals in ranked:
+        partial_req = dict(req)
+        achieved = dict(zip(variables, vals))
+        for a, value in achieved.items():
+            if value:
+                partial_req[a] = value
+            else:
+                partial_req.pop(a, None)
+        chosen = attempt(partial_req)
+        if chosen is not None:
+            return {"recipe": recipe, "ready": False, "chosen": chosen,
+                    "target": targets, "achieved": achieved,
+                    "gaps": {a: targets[a] - achieved[a] for a in variables}}
+
+    return {"recipe": recipe, "ready": False, "chosen": None,
+            "target": targets, "achieved": {a: 0 for a in variables},
+            "gaps": dict(targets)}
 
 
 def startable_lines(action: str, cards: dict, limit: int = 6) -> list[str]:

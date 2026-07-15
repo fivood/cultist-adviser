@@ -228,6 +228,23 @@ def test_endgame_checklist_counts_lore():
     assert alerts and "38/36" in alerts[0].detail
 
 
+def test_counter_locked_past_deadline_is_not_treated_as_available():
+    locked = card("contentment", sphere="~/tabletop!work_1/situationstoragesphere")
+    st = state([verb("despair", 20, recipe="despair"),
+                verb("work", 35, recipe="painting"), locked,
+                card("dread", sphere="~/tabletop!despair_1/slot"),
+                verb("time", 55)])
+    alert = by_priority(st, 200)[0]
+    assert "赶不上" in alert.detail
+
+
+def test_expiring_pair_accounts_for_busy_study():
+    st = state([card("vitality", lifetime=20), card("vitality", lifetime=25),
+                verb("study", 45, recipe="readbook"), verb("time", 55)])
+    alert = by_priority(st, 130)[0]
+    assert "赶不上" in alert.detail
+
+
 def test_ascension_b_missing_vs_ready():
     common = [card("skillhealtha"), card("cultlantern_1"), verb("time", 55)]
     missing = state(common + [card("ascensionenlightenmentb"), card("fragmentlantern")])

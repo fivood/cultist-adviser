@@ -443,28 +443,50 @@ def test_commission_stage1_silenced_when_book_already_pending():
 
 # --------------- endgame threshold breakdown + summoning menu ---
 
-def test_endgame_checklist_states_50_bar_for_major_victory():
-    """Prime-lore threshold gained context: 36 minor / 50 major (Apostle) /
-    27 with-Risen. Content must mention the applicable bar."""
+def test_endgame_checklist_separates_standard_romance_risen_and_apostle():
+    """36 is the standard bar; 50 is an uncraftable placeholder, 27 belongs
+    only to Grail romantic sacrifice, and a Risen does not reduce the bar."""
     # 30 lore — short of 36
     got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
                 card(frag("lantern", 12)), card(frag("lantern", 8)),
                 card(frag("lantern", 6)), card(frag("lantern", 4)),
                 card("funds", qty=5)])
     assert 70 in got and "30" in got[70].detail
-    # 50 lore — major
+    # 50 lore in a standard run is NOT an Apostle victory.
     got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
                 card(frag("lantern", 12)), card(frag("lantern", 12)),
                 card(frag("lantern", 12)), card(frag("lantern", 12)),
                 card(frag("lantern", 2)), card("funds", qty=5)])
-    assert 70 in got and "50" in got[70].detail
-    # 27 with Risen + lover
+    assert 70 in got and "不可直接制作" in got[70].detail
+    assert "50" in got[70].detail and "下一局" in got[70].detail
+    # Risen on Lantern still reports the normal 36 bar, not 27.
     got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
                 card("romanticinterest"), card("spirit_wintera_moth"),
                 card(frag("lantern", 12)), card(frag("lantern", 8)),
                 card(frag("lantern", 6)), card(frag("lantern", 2)),
                 card("funds", qty=5)])
-    assert 70 in got and "27" in got[70].detail
+    assert 70 in got and "不会把门槛降到 27" in got[70].detail
+    # The 27 alternative is specifically Grail + romantic interest.
+    got = tops([card("cultgrail_1"), card("ascensionsensationf"),
+                card("romanticinterest"), card(frag("grail", 12)),
+                card(frag("grail", 8)), card(frag("grail", 6)),
+                card("funds", qty=5)])
+    assert 70 in got and "杯之恋人献祭" in got[70].detail
+
+
+def test_endgame_checklist_emits_an_exact_five_card_layout():
+    """A legal Sunset rite needs five distinct cards; the coarse feasibility
+    pass must not reject it merely for exceeding the old four-card cap."""
+    from cultist_adviser.lexicon import display_name
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
+                card("ritefollowerconsumeinfluence"),
+                card(frag("lantern", 12)), card("cat_d"),
+                card("influencelanterng"), card("funds", qty=5)])
+    assert 70 in got and "普通飞升已就绪" in got[70].detail
+    for eid in ("ritefollowerconsumeinfluence", "fragmentlanternf",
+                "cat_d", "influencelanterng", "ascensionenlightenmentf"):
+        assert display_name(eid) in got[70].detail
+    assert len(got[70].requires) == 5
 
 
 def test_summonable_menu_gates_on_rite_and_lists_reachable():
@@ -482,6 +504,28 @@ def test_summonable_menu_gates_on_rite_and_lists_reachable():
                 card("funds", qty=5)])
     assert 17 in got
     assert display_name("spirit_wintera_moth") in got[17].detail
+
+
+def test_risen_summoning_requires_a_corpse():
+    """Aspect totals alone cannot raise a Risen: the fixed corpse requirement
+    must fit the rite as well."""
+    got = tops([card("ritefollowerconsumeingredient"),
+                card(frag("winter", 4)), card("fragmentmoth"),
+                card("funds", qty=5)])
+    if 17 in got:
+        assert "可召唤" not in got[17].detail
+
+
+def test_lower_priority_summon_is_marked_as_endgame_resource_conflict():
+    """The same rite cannot be used for ascension and summoning at once."""
+    got = tops([card("cultlantern_1"), card("ascensionenlightenmentf"),
+                card("ritefollowerconsumeingredient"),
+                card(frag("lantern", 12)), card("spirit_lanterne_secret"),
+                card("ingredientlanternf"),
+                card("corpse"), card(frag("winter", 4)),
+                card("porter_b"), card("funds", qty=5)])
+    assert 70 in got and 17 in got
+    assert "备选方案" in got[17].detail
 
 
 # --------------------------------- proactive route rescue rules ---
